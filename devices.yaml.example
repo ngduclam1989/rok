@@ -1,0 +1,42 @@
+# Mẫu cấu hình thiết bị.
+# Copy file này thành `devices.yaml` rồi điền serial máy của bạn.
+# Lấy serial bằng:  python main.py devices
+# Hoặc:             adb devices
+#
+# CHẠY:
+#   python main.py bot                 -> bot 1 máy (chế độ hỏi)
+#   python main.py fleet               -> bot SONG SONG cho TẤT CẢ máy bên dưới
+#                                         (mỗi máy 1 subprocess, log riêng
+#                                          ở logs/<serial>.log)
+#
+# DỪNG:
+#   Ctrl+C ở terminal fleet            -> dừng tất cả (graceful, tối đa 30s)
+#   tạo file STOP_<serial>.flag        -> dừng riêng 1 máy
+
+# Cấu hình mặc định, áp cho mọi máy không override trong block 'bot:'.
+defaults:
+  resource: wood           # barb / empty / wood / stone / gold
+  target_level: 5
+  max_slots: 4
+  skip_level_adjust: false
+  turn_wait_min: 60
+
+devices:
+  - name: phone-1
+    serial: YOUR_DEVICE_SERIAL_HERE
+    # Không có 'bot:' -> dùng defaults ở trên.
+
+  # Ví dụ: máy 2 farm đá cấp 7, slot 5 (vd. VIP cao hơn).
+  # - name: phone-2
+  #   serial: ABCD1234EFGH
+  #   bot:
+  #     resource: stone
+  #     target_level: 7
+  #     max_slots: 5
+
+  # Ví dụ: máy 3 farm vàng, bỏ qua chỉnh slider (đã set tay sẵn).
+  # - name: phone-3
+  #   serial: XYZ987WUV654
+  #   bot:
+  #     resource: gold
+  #     skip_level_adjust: true

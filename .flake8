@@ -1,0 +1,16 @@
+[flake8]
+# Match black's default line length (88).
+max-line-length = 88
+
+# Rules that conflict with black's formatting:
+#   E203 — whitespace before ':' (black puts space before slice operators)
+#   W503 — line break before binary operator (black does this intentionally)
+extend-ignore =
+    E203,
+    W503
+
+exclude =
+    .venv,
+    __pycache__,
+    data,
+    assets

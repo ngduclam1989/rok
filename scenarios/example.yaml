@@ -1,0 +1,38 @@
+# Kịch bản mẫu — minh hoạ tất cả step types.
+# Thay các .png trong assets/templates/ bằng ảnh crop từ game thật của bạn.
+
+name: "Farm example"
+loop: true              # chạy vòng lặp vô hạn (Ctrl+C để dừng)
+loop_interval: 3        # nghỉ 3s giữa các vòng
+on_error: continue      # "continue" bỏ qua step lỗi, "stop" thoát ngay
+
+steps:
+  - log: "=== Bắt đầu 1 vòng farm ==="
+
+  # 1) Đóng popup quảng cáo nếu có
+  - if_exists:
+      template: close_ad.png
+      threshold: 0.85
+    then:
+      - tap_template: close_ad.png
+      - wait: 1
+
+  # 2) Bấm nút thu hoạch — chờ tối đa 10s
+  - tap_template:
+      name: harvest_button.png
+      threshold: 0.8
+      timeout: 10
+
+  # 3) Nghỉ random 1.0-2.5s để giống người thật
+  - wait: { min: 1.0, max: 2.5 }
+
+  # 4) Vuốt xuống xem khu vực khác
+  - swipe: [540, 1600, 540, 600, 400]
+
+  # 5) Bấm toạ độ tuyệt đối (nếu không cần match ảnh)
+  # - tap_xy: [960, 1820]
+
+  # 6) Bấm nút back hệ thống
+  - key: BACK
+
+  - log: "=== Hết 1 vòng ==="

@@ -1,0 +1,202 @@
+# Rise of Kingdoms — Auto thu thập gỗ (Cấp 5)
+#
+# Logic v3 (slot-driven):
+#   * Vòng ngoài: check badge "n/N" (March queue ở góc trên-phải City view).
+#   * Nếu n < N  -> gửi 1 đoàn nữa, vòng kế sẽ check lại slot
+#   * Nếu n == N -> mở Đội Quân panel, đọc timer (CHỈ dòng "Đang thu gom",
+#                    bỏ qua đang hành quân / trở về), sleep min(timer) + 10-15 phút
+#   * 1 vòng đầy đủ = đến lúc slot full + ngủ chờ. Không phải mỗi đoàn 1 vòng.
+#
+# Reference px (Samsung A71 2400x1080 landscape) — VERIFIED 2026-05-19 via blue-cluster detect:
+#   Bottom-left button stack (cùng vị trí cho cả city & world):
+#     TOP button (kính lúp ở world / cây búa ở city)  (161, 796) -> (6.7, 73.7)%
+#     MAP TOGGLE / CASTLE (chuyển city <-> world)     (161, 974) -> (6.7, 90.2)%
+#   slider minus       (988, 628)  -> (41.2, 58.1)%
+#   slider plus        (1410, 628) -> (58.8, 58.1)%
+#   TÌM KIẾM           (1198, 729) -> (49.9, 67.5)%
+#   HÀNH QUÂN          (1634, 940) -> (68.1, 87.0)%
+#   Badge "n/N"        (~2230, 280) -> (~93, 26)% (cạnh nút 2-chĩa)
+# View detection: OCR "phong" text trong top center
+#   -> match (city có "Thời kỳ phong kiến"), không match (world)
+# Build menu dismiss: tap (1200, 130) -> (50, 12)% (city visible area trên panel)
+
+name: "RoK gather wood lv5 (slot-driven)"
+loop: true
+loop_interval: 0
+on_error: continue
+
+steps:
+  - log: "=== Vòng kiểm tra slot ==="
+
+  # ---------- (00) Unlock màn hình nếu bị Samsung idle lock ----
+  # Lock screen Samsung A71: "Kéo biểu tượng Khóa để mở khóa"
+  # Cách mở: swipe ngang từ giữa sang phải. Sau swipe -> game hiện lại.
+  - if_exists:
+      any: ["Khoa", "Keo bieu", "mo khoa"]
+      region_pct: [20, 25, 80, 70]
+      threshold: 0.5
+    then:
+      - log: "Lock screen detected -> swipe to unlock"
+      - swipe: [1200, 540, 2200, 540, 700]
+      - wait: { min: 1.5, max: 2.0 }
+
+  # ---------- (0a) Dismiss BUILD MENU nếu lỡ kẹt (do tap nhầm cây búa) ----
+  # Panel "Cảnh Thành Phố" có sidebar KINH TẾ/QUÂN ĐỘI/TRANG TRÍ + list công
+  # trình. BACK key KHÔNG đóng được panel này. Cách close: tap vùng CITY
+  # phía trên panel (y<20%, ngoài resource bar). Loop tối đa 3 lần.
+  - if_exists:
+      any: ["Canh Thanh", "KINH T", "Nha may go", "Mo Pha Le", "TRANG TR", "QUAN DO"]
+      region_pct: [0, 5, 100, 95]
+      threshold: 0.5
+    then:
+      - log: "Build menu detected -> tap outside panel (y=12)"
+      - tap_pct: [50.0, 12.0]
+      - wait: { min: 1.8, max: 2.5 }
+      # Retry 2 lần nếu menu vẫn còn
+      - if_exists:
+          any: ["KINH T", "Nha may go", "TRANG TR", "QUAN DO"]
+          region_pct: [0, 18, 15, 85]
+          threshold: 0.5
+        then:
+          - log: "Menu vẫn còn -> tap outside lần 2 + BACK"
+          - tap_pct: [50.0, 12.0]
+          - wait: { min: 1.8, max: 2.5 }
+          - key: BACK
+          - wait: { min: 1.5, max: 2.5 }
+          - if_exists:
+              any: ["KINH T", "Nha may go", "TRANG TR", "QUAN DO"]
+              region_pct: [0, 18, 15, 85]
+              threshold: 0.5
+            then:
+              - log: "Menu vẫn còn -> tap top-right close area"
+              - tap_pct: [98.0, 5.0]
+              - wait: { min: 2.0, max: 3.0 }
+
+  # ---------- (0b) Dismiss popup "Thoát trò chơi?" nếu lỡ bung ra ----
+  - find_and_tap:
+      text: "HUY"
+      region_pct: [50, 50, 80, 80]
+      threshold: 0.6
+      timeout: 1
+      on_fail:
+        - log: "no exit dialog"
+  - wait: 0.5
+
+  # ---------- (1) Đọc badge "n/N" (hoạt động cả city và world view) ----
+  # Test thực tế trên A71: badge "2/4" ở (~93.75%, 20.4%). Region hẹp
+  # cho OCR confidence cao (0.99).
+  - read_slot_count:
+      region_pct: [92, 18, 100, 30]
+      save_as: slots
+
+  # ---------- (3) Branch: full -> sleep, not full -> dispatch ----
+  - if_slots_full:
+      source: slots
+      default_when_unknown: not_full
+
+      # ============================================================
+      # Slot FULL -> mở Đội Quân, đọc timer, sleep
+      # ============================================================
+      when_full:
+        # Slots 4/4 full -> sleep 8-15 phút random rồi check lại slot.
+        # KHÔNG mở Đội Quân panel: tap 2-chĩa button không reliable trên
+        # A71 (hits Build menu thay vì Đội Quân). Dùng sleep cố định +
+        # jitter cho anti-detect. Khi 1 đoàn về, slot sẽ giảm -> dispatch
+        # lại được.
+        - log: "Slots 4/4 full -> sleep 8-15 phút"
+        - wait_until_min:
+            source: army_timers       # không set -> base = 0
+            jitter_min_sec: 480       # 8 phút
+            jitter_max_sec: 900       # 15 phút
+            floor_sec: 480            # min 8 phút (an toàn)
+            log_every_sec: 120
+        - log: "=== Sleep xong, quay lại check slot ==="
+
+      # ============================================================
+      # Slot CHƯA FULL -> gửi 1 đoàn
+      # ============================================================
+      when_not_full:
+        - log: "Slot còn trống -> đảm bảo World view + gửi 1 đoàn"
+
+        # Ensure World view: dùng OCR detect text "Thời kỳ phong kiến"
+        # (top-center, CHỈ hiện ở City view). Region rộng [10-80%, 0-12%]
+        # để bắt được toàn bộ text - verified OCR "Thi ky phong" conf 0.99.
+        - if_exists:
+            any: ["phong", "Thi k", "Thoi k", "ky phong", "kien"]
+            region_pct: [10, 0, 80, 12]
+            threshold: 0.5
+          then:
+            - log: "Đang City -> toggle sang World"
+            - tap_pct: [6.7, 90.2]         # MAP TOGGLE (verified)
+            - wait: { min: 1.8, max: 2.5 }
+          else:
+            - log: "Đã ở World view"
+
+        # HARD GATE: chỉ tap (6.7, 73.7) khi template match kính lúp.
+        # Nếu không match (vẫn là cây búa / city view) -> SKIP iteration,
+        # tuyệt đối KHÔNG tap nhầm cây búa. Threshold cao (0.82) để loại
+        # false-positive ở city view.
+        - if_exists:
+            template: "btn_kinh_luc.png"
+            threshold: 0.82
+          then:
+            - log: "OK kinh luc confirmed -> mo Tim kiem"
+            - tap_pct: [6.7, 73.7]
+            - wait: { min: 1.5, max: 2.2 }
+            - wait_for_text:
+                any: ["Cp", "M K", "TM", "KIM", "Gi qun"]
+                region_pct: [30, 35, 70, 80]
+                timeout: 8
+                abort_on_fail: true
+                on_fail:
+                  - log: "panel tìm kiếm chưa mở, skip iteration"
+
+            # Slider về Cấp 5
+            - ensure_value:
+                pattern: "(?i)c[a-z]*\\s*[:.]?\\s*(\\d+)"
+                region_pct: [35, 50, 65, 60]
+                target: 5
+                decrease_tap_pct: [41.2, 58.1]   # nút -
+                increase_tap_pct: [58.8, 58.1]   # nút +
+                max_taps: 10
+                poll_after_tap_sec: 0.6
+
+            # TÌM KIẾM
+            - find_and_tap:
+                text: "M K"
+                region_pct: [40, 60, 70, 90]
+                threshold: 0.65
+                timeout: 5
+                fallback_tap_pct: [49.9, 67.5]
+
+            # Camera bay + auto-progression -> chờ panel Quân mới
+            - wait: { min: 6.0, max: 8.0 }
+            - wait_for_text:
+                any: ["HANH", "QUN", "HANH QU"]
+                region_pct: [50, 80, 80, 100]
+                timeout: 6
+                abort_on_fail: true
+                on_fail:
+                  - log: "panel Quân mới chưa mở, skip iteration"
+
+            # HÀNH QUÂN -> dispatch
+            - find_and_tap:
+                text: "HANH"
+                region_pct: [50, 80, 80, 100]
+                threshold: 0.6
+                timeout: 4
+                fallback_tap_pct: [68.1, 86.2]
+            - wait: { min: 3.0, max: 4.0 }
+            - log: "=== Đã gửi 1 đoàn ==="
+
+            # Quay về City để vòng kế check slot
+            - tap_pct: [6.7, 90.2]   # MAP TOGGLE (verified)
+            - wait: { min: 1.8, max: 2.5 }
+          else:
+            # Không phát hiện kính lúp -> đang là cây búa (city). KHÔNG tap cây búa,
+            # thay vào đó tap MAP TOGGLE để chuyển World. Iteration kế sẽ retry.
+            - log: "Khong thay kinh luc -> la cay bua, tap MAP TOGGLE chuyen World"
+            - tap_pct: [6.7, 90.2]
+            - wait: { min: 1.8, max: 2.5 }
+
+  - log: "=== Hết 1 iteration ==="

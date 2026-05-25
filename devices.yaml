@@ -1,5 +1,4 @@
-# Mẫu cấu hình thiết bị.
-# Copy file này thành `devices.yaml` rồi điền serial máy của bạn.
+# Cấu hình thiết bị.
 # Lấy serial bằng:  python main.py devices
 # Hoặc:             adb devices
 #
@@ -15,29 +14,14 @@
 
 # Cấu hình mặc định, áp cho mọi máy không override trong block 'bot:'.
 defaults:
-  resource: wood           # barb / empty / wood / stone / gold
+  # resource: wood           # barb / corn / wood / stone / gold / cycle
+  resource: cycle          # Xoay vòng tài nguyên (1 ngô, 1 đá, 1 vàng, 2 gỗ)
   target_level: 5
   max_slots: 4
   skip_level_adjust: false
   turn_wait_min: 60
-  
+
 devices:
   - name: phone-1
     serial: 127.0.0.1:5555
-    serial: YOUR_DEVICE_SERIAL_HERE
     # Không có 'bot:' -> dùng defaults ở trên.
-
-  # Ví dụ: máy 2 farm đá cấp 7, slot 5 (vd. VIP cao hơn).
-  # - name: phone-2
-  #   serial: ABCD1234EFGH
-  #   bot:
-  #     resource: stone
-  #     target_level: 7
-  #     max_slots: 5
-
-  # Ví dụ: máy 3 farm vàng, bỏ qua chỉnh slider (đã set tay sẵn).
-  # - name: phone-3
-  #   serial: XYZ987WUV654
-  #   bot:
-  #     resource: gold
-  #     skip_level_adjust: true

@@ -47,7 +47,7 @@ mq_debug.txt
 # ===== Secret / config riêng =====
 # devices.yaml chứa serial máy của bạn -> đừng push
 # (nếu muốn share thì xoá dòng dưới và push file template thay thế)
-devices.yaml
+# devices.yaml
 
 # ===== IDE / Editor =====
 .vscode/

@@ -25,7 +25,7 @@ def handle_popup(device: Device, screen: np.ndarray) -> StepResult:
     log.info("Phát hiện popup -> chạm X đóng (96.5%%, 5.5%%)")
     x, y = pct_to_px(screen, 96.5, 5.5)
     device.tap(x, y)
-    return StepResult(True, "đã đóng popup", sleep_after=2.0)
+    return StepResult(True, "đã đóng popup", sleep_after=1.5)
 
 
 def handle_build_menu(
@@ -34,7 +34,7 @@ def handle_build_menu(
     log.info("Menu xây dựng -> chạm vùng thành phố phía trên")
     x, y = pct_to_px(screen, 50.0, 12.0)
     device.tap(x, y)
-    return StepResult(True, "đóng menu xây dựng", sleep_after=2.0)
+    return StepResult(True, "đóng menu xây dựng", sleep_after=1.5)
 
 
 def handle_gems_shop(device: Device, screen: np.ndarray) -> StepResult:
@@ -45,4 +45,4 @@ def handle_gems_shop(device: Device, screen: np.ndarray) -> StepResult:
         log.warning("Không thể gửi phím BACK qua ADB: %s, thử chạm góc trên bên trái", e)
         x, y = pct_to_px(screen, 5.0, 5.0)
         device.tap(x, y)
-    return StepResult(True, "đã xử lý thoát màn hình nạp đá quý", sleep_after=2.5)
+    return StepResult(True, "đã xử lý thoát màn hình nạp đá quý", sleep_after=1.5)

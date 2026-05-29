@@ -41,7 +41,7 @@ def handle_city(
         )
         x, y = pct_to_px(screen, 6.0, 91.2)
         device.tap(x, y)
-    return StepResult(True, "đã chuyển ra bản đồ", sleep_after=2.5)
+    return StepResult(True, "đã chuyển ra bản đồ", sleep_after=1.5)
 
 
 def handle_world(
@@ -74,13 +74,13 @@ def handle_world(
         center_x_pct, center_y_pct, x, y
     )
     device.tap(x, y)
-    return StepResult(True, f"đã mở bảng tìm kiếm (chạm @({x},{y}))", sleep_after=2.5)
+    return StepResult(True, f"đã mở bảng tìm kiếm (chạm @({x},{y}))", sleep_after=1.5)
 
 
 def handle_switch_account(device: Device) -> bool:
     """Thực hiện chuỗi thao tác chuyển tài khoản: Avatar -> Cài đặt -> Nhân vật -> Ngôi sao -> Yes."""
-    log.info("Đang đợi 20s cho các đạo quân ổn định trước khi chuyển acc...")
-    time.sleep(20.0)
+    log.info("Đang đợi 10s cho các đạo quân ổn định trước khi chuyển acc...")
+    time.sleep(10.0)
 
     try:
         screen = device.snapshot()

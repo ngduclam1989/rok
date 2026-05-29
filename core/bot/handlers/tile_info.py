@@ -33,7 +33,7 @@ def handle_tile_info(
     )
     if pos is not None:
         log.info("Popup ô tile -> chạm THU THẬP @(%d,%d)", *pos)
-        return StepResult(True, "đã chạm thu thập", sleep_after=3.0)
+        return StepResult(True, "đã chạm thu thập", sleep_after=1.5)
 
     log.warning(
         "Popup tile không có THU THẬP (chắc là Man rỡ/Đất trống) "
@@ -44,5 +44,5 @@ def handle_tile_info(
     except Exception:
         pass
     return StepResult(
-        False, "ô không phải tài nguyên, đã thoát", sleep_after=2.5,
+        False, "ô không phải tài nguyên, đã thoát", sleep_after=1.5,
     )

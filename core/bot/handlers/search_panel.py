@@ -244,15 +244,15 @@ def handle_search_panel(
             # đủ thời gian render giá trị mới — iter sau OCR cấp
             # sẽ đọc số ổn định, không bị "trôi" trong animation.
             return StepResult(
-                True, f"{action} x{taps}", sleep_after=2.5,
+                True, f"{action} x{taps}", sleep_after=1.5,
             )
 
     # Delay trước khi chạm TÌM KIẾM: kể cả khi không vừa chỉnh slider
     # ở iter này (level đã = target từ trước), iter trước có thể vừa
     # mới chỉnh xong. Đợi 1.2s cho UI ổn định rồi mới tap, tránh tap
     # vào lúc animation slider/panel còn đang chạy -> game bỏ qua.
-    log.info("Chạm TÌM KIẾM (chờ 1.2s cho UI ổn định)")
-    time.sleep(1.2)
+    log.info("Chạm TÌM KIẾM (chờ 0.5s cho UI ổn định)")
+    time.sleep(0.5)
     pos = tap_template(
         device, screen, "btn_tim_kiem.png", 0.75,
         region_pct=(20, 55, 95, 80),
@@ -260,6 +260,6 @@ def handle_search_panel(
     )
     if pos is None:
         return StepResult(
-            False, "không thấy nút TÌM KIẾM", sleep_after=2.0,
+            False, "không thấy nút TÌM KIẾM", sleep_after=1.5,
         )
-    return StepResult(True, "đã chạm tìm kiếm", sleep_after=6.0)
+    return StepResult(True, "đã chạm tìm kiếm", sleep_after=2.5)

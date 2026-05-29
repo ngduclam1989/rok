@@ -43,7 +43,7 @@ def handle_march_plan(
         x, y = pct_to_px(screen, 96.0, 8.0)
         device.tap(x, y)
         return StepResult(
-            True, "tướng trống, đã đóng bảng", sleep_after=2.5,
+            True, "tướng trống, đã đóng bảng", sleep_after=1.5,
         )
 
     pos = tap_template(
@@ -54,7 +54,7 @@ def handle_march_plan(
     if pos is not None:
         log.info("Chạm HÀNH QUÂN cuối cùng @(%d,%d)", *pos)
         return StepResult(
-            True, "đã gửi quân", sleep_after=3.5, goal_reached=True,
+            True, "đã gửi quân", sleep_after=1.5, goal_reached=True,
         )
 
     log.info("Bảng quân (bước đầu) -> chạm Quân mới")
@@ -64,7 +64,7 @@ def handle_march_plan(
         long_tap=True,
     )
     if pos is not None:
-        return StepResult(True, "đã mở bảng chọn quân", sleep_after=2.5)
+        return StepResult(True, "đã mở bảng chọn quân", sleep_after=1.5)
 
     # Neither button found — likely the general has no troops or we
     # caught an animation frame. Force-close the panel via top-right X.
@@ -75,4 +75,4 @@ def handle_march_plan(
         x, y = pct_to_px(screen, cx_pct, cy_pct)
         device.tap(x, y)
         time.sleep(0.4)
-    return StepResult(False, "ép đóng panel", sleep_after=2.5)
+    return StepResult(False, "ép đóng panel", sleep_after=1.5)

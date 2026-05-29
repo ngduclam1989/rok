@@ -121,26 +121,20 @@ def _initial_navigate_to_world(device: Device) -> None:
             time.sleep(2.5)
             continue
 
-        # Mọi state là bảng/popup đang mở (search_panel, tile_info, march_plan,
-        # popup, build_menu, exit_dialog, gems_shop) -> bắt buộc đóng để 
-        # quay về bản đồ thế giới WORLD sạch sẽ trước khi chạy.
+        # Mọi state khác mà MAIN LOOP đã biết cách xử lý
+        # (search_panel, tile_info, march_plan, popup, build_menu,
+        # exit_dialog, gems_shop) -> không cố ép về WORLD ở đây, vào loop để
+        # handler riêng của state đó tiếp quản.
         if state in (
             S.SEARCH_PANEL, S.TILE_INFO, S.MARCH_PLAN,
             S.POPUP, S.BUILD_MENU, S.EXIT_DIALOG, S.GEMS_SHOP,
         ):
             log.info(
-                "Đang ở %s tại startup -> Bắt buộc đóng để quay về WORLD sạch sẽ",
+                "Đang ở %s -> main loop sẽ tự xử lý, "
+                "bỏ qua initial nav",
                 state.value,
             )
-            x, y = pct_to_px(screen, 97.0, 5.0)
-            device.tap(x, y)
-            time.sleep(0.5)
-            try:
-                device.key("BACK")
-            except Exception:
-                pass
-            time.sleep(2.0)
-            continue
+            return
 
         # State UNKNOWN: Khởi động game com.rok.gp.vn tự động
         log.warning("Đang ở %s -> Tự động khởi động game...", state.value)
@@ -336,6 +330,24 @@ def run(device: Device, max_iterations: int | None = None) -> None:
         per_dev_flag.unlink()
 
     device.keep_awake()
+
+    log.info("Khởi động bot -> Đang chờ 10s cho giao diện game ổn định...")
+    time.sleep(10.0)
+
+    # Thực hiện longtap tâm màn hình để bỏ qua intro/cinematic ở startup bot
+    log.info("Thực hiện longtap vào tâm màn hình để bỏ qua intro...")
+    try:
+        screen = device.snapshot()
+        h, w = screen.shape[:2]
+        cx, cy = int(w * 0.5), int(h * 0.5)
+        device.long_tap(cx, cy, duration_ms=500)
+    except Exception as e:
+        log.warning("Không chụp được màn hình, dùng tọa độ mặc định (1200, 540): %s", e)
+        try:
+            device.long_tap(1200, 540, duration_ms=500)
+        except Exception:
+            pass
+    time.sleep(5.0)
 
     # Normalise to WORLD before entering the main loop.
     _initial_navigate_to_world(device)
@@ -621,7 +633,7 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             # auto-detects MAX_SLOTS and uses the GAME'S count as the
             # source of truth (more reliable than local counting since
             # the user may have had marches running before bot start).
-            time.sleep(3)
+            time.sleep(1.5)
             try:
                 post_screen = device.snapshot()
                 n, mx = read_slot_badge(post_screen)
@@ -677,8 +689,8 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 continue
 
             _go_home_then_world(device)
-            log.info("Nghỉ ngắn 15-20s trước chu kỳ thu thập tiếp theo")
-            pause(15, 20)
+            log.info("Nghỉ ngắn 1-2s trước chu kỳ thu thập tiếp theo")
+            pause(1, 2)
             last_state = None
             stuck_count = 0
             continue

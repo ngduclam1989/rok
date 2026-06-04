@@ -136,10 +136,18 @@ def _initial_navigate_to_world(device: Device) -> None:
             )
             return
 
-        # State UNKNOWN: Khởi động game com.rok.gp.vn tự động
-        log.warning("Đang ở %s -> Tự động khởi động game...", state.value)
-        device.start_game()
-        time.sleep(15.0)
+        # State UNKNOWN: Kiểm tra game có thực sự không chạy hay không trước khi khởi động
+        if not device.is_game_running():
+            log.warning("Đang ở %s và phát hiện game không chạy/crash -> Khởi chạy lại game com.rok.gp.vn...", state.value)
+            device.start_game()
+            time.sleep(15.0)
+        else:
+            log.info("Đang ở %s nhưng game vẫn đang chạy. Mang game lên trước (bring to front) và chờ 5s...", state.value)
+            try:
+                device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+            except Exception:
+                pass
+            time.sleep(5.0)
 
     log.warning(
         "Sau 5 lần thử vẫn chưa ở WORLD -> vào loop, "
@@ -472,9 +480,18 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 device._adb_path = device._dev.adb.adb_path
                 log.info("Khôi phục kết nối thành công với thiết bị: %s", device.serial)
                 
-                # Tự động khởi chạy lại game
-                device.start_game()
-                time.sleep(15.0)
+                # Kiểm tra xem game có thực sự bị tắt hay không khi khôi phục kết nối
+                if not device.is_game_running():
+                    log.warning("Game không chạy sau khi khôi phục kết nối -> Đang khởi chạy lại...")
+                    device.start_game()
+                    time.sleep(15.0)
+                else:
+                    log.info("Game vẫn đang chạy sau khi khôi phục kết nối. Đưa game lên trước...")
+                    try:
+                        device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+                    except Exception:
+                        pass
+                    time.sleep(5.0)
             except Exception as re_err:
                 log.error("Tự động khôi phục kết nối thất bại: %s. Thử lại sau 5s...", re_err)
                 time.sleep(5.0)

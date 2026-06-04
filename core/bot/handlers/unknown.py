@@ -45,6 +45,16 @@ def handle_unknown(
         device.key("BACK")
         return StepResult(False, "back x2", sleep_after=4.0)
 
-    log.warning("Hồi phục 5: Vẫn kẹt ở UNKNOWN -> Tự động khởi động lại game...")
-    device.start_game()
-    return StepResult(False, "khởi động lại game com.rok.gp.vn", sleep_after=15.0)
+    # Hồi phục 5: Vẫn kẹt ở UNKNOWN
+    if not device.is_game_running():
+        log.warning("Hồi phục 5: Game không chạy/crashed -> Khởi động lại game...")
+        device.start_game()
+        return StepResult(False, "khởi chạy lại game com.rok.gp.vn", sleep_after=15.0)
+    else:
+        log.warning("Hồi phục 5: Game vẫn đang chạy nhưng bị kẹt ở UNKNOWN. Đưa game lên trước và bấm BACK...")
+        try:
+            device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+        except Exception:
+            pass
+        device.key("BACK")
+        return StepResult(False, "đưa game lên trước và bấm BACK", sleep_after=5.0)

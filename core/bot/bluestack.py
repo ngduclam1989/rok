@@ -47,8 +47,8 @@ def get_instance_name_by_port(port: str | int) -> str | None:
         log.error("Không tìm thấy file cấu hình Bluestacks tại: %s", conf_path)
         return None
 
-    # Line format: bst.instance.Pie64.status.adb_port="5555"
-    pattern = re.compile(r'bst\.instance\.([a-zA-Z0-9_]+)\.status\.adb_port="(\d+)"')
+    # Line format: bst.instance.Pie64.status.adb_port="5555" hoặc bst.instance.Pie64.adb_port="5555"
+    pattern = re.compile(r'bst\.instance\.([a-zA-Z0-9_]+)(?:\.status)?\.adb_port="(\d+)"')
     try:
         with open(conf_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
@@ -101,11 +101,21 @@ def start_bluestack(serial_or_port: str | int, timeout: int = 40) -> bool:
         try:
             if proc.info['name'] == 'HD-Player.exe' and proc.info['cmdline']:
                 cmdline = proc.info['cmdline']
+                match = False
                 if '--instance' in cmdline:
                     idx = cmdline.index('--instance')
                     if idx + 1 < len(cmdline) and cmdline[idx+1] == instance_name:
-                        is_running = True
-                        break
+                        match = True
+                else:
+                    # Nếu chạy thủ công không có --instance, mặc định là instance chính (Pie64, Nougat32, Rvc64)
+                    # Hoặc nếu chỉ có đúng 1 HD-Player.exe đang chạy trên toàn hệ thống
+                    is_only_one = len([p for p in psutil.process_iter(['name']) if p.info['name'] == 'HD-Player.exe']) == 1
+                    if is_only_one or instance_name in ["Pie64", "Nougat32", "Rvc64"]:
+                        match = True
+                
+                if match:
+                    is_running = True
+                    break
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
@@ -162,16 +172,26 @@ def stop_bluestack(serial_or_port: str | int) -> bool:
         try:
             if proc.info['name'] == 'HD-Player.exe' and proc.info['cmdline']:
                 cmdline = proc.info['cmdline']
+                match = False
                 if '--instance' in cmdline:
                     idx = cmdline.index('--instance')
                     if idx + 1 < len(cmdline) and cmdline[idx+1] == instance_name:
-                        log.info("Đang tắt process PID %d...", proc.info['pid'])
-                        proc.terminate()
-                        try:
-                            proc.wait(timeout=5)
-                        except psutil.TimeoutExpired:
-                            proc.kill()
-                        killed = True
+                        match = True
+                else:
+                    # Nếu chạy thủ công không có --instance, mặc định là instance chính (Pie64, Nougat32, Rvc64)
+                    # Hoặc nếu chỉ có đúng 1 HD-Player.exe đang chạy trên toàn hệ thống
+                    is_only_one = len([p for p in psutil.process_iter(['name']) if p.info['name'] == 'HD-Player.exe']) == 1
+                    if is_only_one or instance_name in ["Pie64", "Nougat32", "Rvc64"]:
+                        match = True
+                
+                if match:
+                    log.info("Đang tắt process PID %d...", proc.info['pid'])
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except psutil.TimeoutExpired:
+                        proc.kill()
+                    killed = True
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 

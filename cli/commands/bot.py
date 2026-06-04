@@ -66,6 +66,42 @@ def cmd_bot(args: argparse.Namespace) -> int:
         args.turn_wait_min,
     )
 
+    from core.bot.bluestack import start_bluestack, stop_bluestack, get_instance_name_by_port
+    import time
+
+    s = str(serial).strip()
+    port_str = s.split(":")[-1] if ":" in s else s
+    is_bluestacks = False
+    try:
+        port = int(port_str)
+        if get_instance_name_by_port(port) is not None:
+            is_bluestacks = True
+    except ValueError:
+        pass
+
+    if is_bluestacks:
+        logging.info("B1: Phát hiện cấu hình Bluestacks. Kiểm tra trạng thái và bật...")
+        from core.bot.bluestack import is_port_open
+        already_on = is_port_open(port)
+        if not already_on:
+            logging.info("Bluestacks chưa bật. Tiến hành bật lên...")
+            if not start_bluestack(serial):
+                logging.error("Không thể khởi động hoặc kết nối Bluestacks cho %s", serial)
+                return 1
+            logging.info("Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...")
+            time.sleep(10.0)
+        else:
+            logging.info("Bluestacks đã bật sẵn. Bỏ qua chờ 10s và chuyển sang B2.")
+    else:
+        logging.info("B1: Thiết bị không thuộc cấu hình Bluestacks hoặc không tìm thấy instance. Bỏ qua tự động bật/tắt.")
+
     device = Device(serial, TEMPLATES_DIR)
-    bot_engine.run(device, max_iterations=args.max_iter)
+    try:
+        bot_engine.run(device, max_iterations=args.max_iter)
+    finally:
+        if is_bluestacks:
+            logging.info("B5: Kết thúc bot. Chờ 5s trước khi tắt Bluestack...")
+            time.sleep(5.0)
+            stop_bluestack(serial)
+
     return 0

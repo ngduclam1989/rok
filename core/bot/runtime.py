@@ -331,20 +331,27 @@ def run(device: Device, max_iterations: int | None = None) -> None:
 
     device.keep_awake()
 
-    log.info("Khởi động bot -> Đang chờ 10s cho giao diện game ổn định...")
+    # B2: mở game, chờ 10s cho game ổn định
+    log.info("B2: Mở game Rise of Kingdoms (com.rok.gp.vn)...")
+    try:
+        device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+    except Exception as e:
+        log.error("Không thể mở game qua monkey: %s", e)
+
+    log.info("Đang chờ 10s cho giao diện game ổn định...")
     time.sleep(10.0)
 
-    # Thực hiện longtap tâm màn hình để bỏ qua intro/cinematic ở startup bot
-    log.info("Thực hiện longtap vào tâm màn hình để bỏ qua intro...")
+    # B3: ấn vào giữa màn hình
+    log.info("B3: Ấn vào giữa màn hình...")
     try:
         screen = device.snapshot()
         h, w = screen.shape[:2]
         cx, cy = int(w * 0.5), int(h * 0.5)
-        device.long_tap(cx, cy, duration_ms=500)
+        device.tap(cx, cy)
     except Exception as e:
         log.warning("Không chụp được màn hình, dùng tọa độ mặc định (1200, 540): %s", e)
         try:
-            device.long_tap(1200, 540, duration_ms=500)
+            device.tap(1200, 540)
         except Exception:
             pass
     time.sleep(5.0)

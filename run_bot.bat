@@ -5,11 +5,11 @@ echo ======================================================
 echo           KHỞI CHẠY BOT ROK (AUTO FARM)
 echo ======================================================
 echo.
-echo Đang kết nối và khởi chạy bot, vui lòng đợi...
+echo Đang kết nối và khởi chạy bot (RoKBot.exe)...
 echo.
 
-:: Gọi trực tiếp Python trong thư mục .venv mà không cần kích hoạt (activate) venv
-call .venv\Scripts\python main.py bot --serial 127.0.0.1:5555 --resource cycle
+:: Gọi trực tiếp file EXE đã biên dịch để chạy kịch bản tuần tự
+RoKBot.exe fleet --sequential
 
 echo.
 echo Bot đã dừng hoặc gặp sự cố. Bấm phím bất kỳ để thoát...

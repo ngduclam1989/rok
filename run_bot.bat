@@ -1,16 +1,14 @@
 @echo off
 title RoK Auto Farm Bot
-chcp 65001 > nul
 echo ======================================================
-echo           KHỞI CHẠY BOT ROK (AUTO FARM)
+echo           STARTING ROK AUTO FARM BOT
 echo ======================================================
 echo.
-echo Đang kết nối và khởi chạy bot (RoKBot.exe)...
+echo Connecting and launching RoKBot.exe...
 echo.
 
-:: Gọi trực tiếp file EXE đã biên dịch để chạy kịch bản tuần tự
 RoKBot.exe fleet --sequential
 
 echo.
-echo Bot đã dừng hoặc gặp sự cố. Bấm phím bất kỳ để thoát...
+echo Bot stopped or encountered an error. Press any key to exit...
 pause > nul

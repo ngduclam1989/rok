@@ -125,8 +125,8 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                 break
 
             logging.info("=== ĐÃ HOÀN THÀNH CHU KỲ CHẠY TUẦN TỰ CHO TOÀN BỘ DANH SÁCH THIẾT BỊ! ===")
-            logging.info("Chờ 2 giờ 30 phút (9000 giây) trước khi chạy lại từ đầu...")
-            sleep_with_stop_check_exact(2.5 * 3600)
+            logging.info("Chờ 2 giờ (7200 giây) trước khi chạy lại từ đầu...")
+            sleep_with_stop_check_exact(2 * 3600)
             if should_stop():
                 break
 

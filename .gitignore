@@ -66,3 +66,6 @@ desktop.ini
 # ===== PaddleOCR model cache (~85MB) =====
 .paddlex/
 .paddleocr/
+
+# ===== Standalone Compiled EXE =====
+RoKBot.exe

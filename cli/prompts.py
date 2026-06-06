@@ -114,6 +114,16 @@ def run_bot_wizard(
                 "Serial thiết bị ADB", default_serial,
             )
 
+    # Đảm bảo các giá trị None có giá trị mặc định trong wizard
+    if getattr(args, "resource", None) is None:
+        args.resource = "wood"
+    if getattr(args, "target_level", None) is None:
+        args.target_level = 5
+    if getattr(args, "turn_wait_min", None) is None:
+        args.turn_wait_min = 60
+    if getattr(args, "skip_level_adjust", None) is None:
+        args.skip_level_adjust = False
+
     res_map = {"ngo": "corn", "food": "corn", "crop": "corn"}
     args.resource = res_map.get(args.resource, args.resource)
 

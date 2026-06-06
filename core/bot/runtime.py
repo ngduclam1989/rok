@@ -140,7 +140,7 @@ def _initial_navigate_to_world(device: Device) -> None:
         if not device.is_game_running():
             log.warning("Đang ở %s và phát hiện game không chạy/crash -> Khởi chạy lại game com.rok.gp.vn...", state.value)
             device.start_game()
-            time.sleep(15.0)
+            time.sleep(25.0)  # B2: chờ 25s khi mở game mới
         else:
             log.info("Đang ở %s nhưng game vẫn đang chạy. Mang game lên trước (bring to front) và chờ 5s...", state.value)
             try:
@@ -248,6 +248,8 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
             if pos is None:
                 x, y = pct_to_px(screen, 6.0, 91.2)
                 device.tap(x, y)
+        elif state in (S.EXIT_DIALOG, S.POPUP, S.GEMS_SHOP, S.BUILD_MENU, S.SEARCH_PANEL, S.TILE_INFO, S.MARCH_PLAN):
+            _dispatch_to_handler(device, screen, state, stuck_count=1)
         else:
             x, y = pct_to_px(screen, 97.0, 5.0)
             device.tap(x, y)
@@ -339,15 +341,55 @@ def run(device: Device, max_iterations: int | None = None) -> None:
 
     device.keep_awake()
 
-    # B2: mở game, chờ 10s cho game ổn định
-    log.info("B2: Mở game Rise of Kingdoms (com.rok.gp.vn)...")
+    # B2: kiểm tra xem Bluestacks có bật không, sau đó kiểm tra xem game có bật không
+    log.info("B2: Kiểm tra trạng thái của giả lập và game...")
+    
+    # 1. Kiểm tra trạng thái Bluestacks (nếu thuộc cấu hình Bluestacks)
+    from core.bot.bluestack import start_bluestack, is_port_open, get_instance_name_by_port
+    s = str(device.serial).strip()
+    port_str = s.split(":")[-1] if ":" in s else s
+    is_bluestacks = False
     try:
-        device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
-    except Exception as e:
-        log.error("Không thể mở game qua monkey: %s", e)
+        port = int(port_str)
+        if get_instance_name_by_port(port) is not None:
+            is_bluestacks = True
+    except ValueError:
+        pass
 
-    log.info("Đang chờ 10s cho giao diện game ổn định...")
-    time.sleep(10.0)
+    if is_bluestacks:
+        log.info("B2: Phát hiện thiết bị Bluestacks. Kiểm tra xem giả lập có đang bật không...")
+        try:
+            if not is_port_open(port):
+                log.warning("Bluestacks chưa bật hoặc đã bị đóng. Tiến hành bật Bluestacks...")
+                if start_bluestack(device.serial):
+                    log.info("Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...")
+                    time.sleep(10.0)
+                else:
+                    log.error("Không thể khởi động hoặc kết nối Bluestacks cho %s", device.serial)
+            else:
+                log.info("Bluestacks đã bật sẵn.")
+        except Exception as e:
+            log.error("Lỗi khi kiểm tra/khởi động Bluestacks: %s", e)
+
+    # 2. Kiểm tra xem game có bật không
+    try:
+        if not device.is_game_running():
+            log.warning("Game chưa chạy hoặc đã bị đóng. Tiến hành khởi động lại game...")
+            device.start_game()
+            log.info("B2: Đang chờ 25s cho game tải xong...")
+            time.sleep(25.0)  # B2: chờ 25s khi khởi động game mới
+        else:
+            log.info("Game đang chạy sẵn. Đưa ứng dụng lên tiền cảnh...")
+            device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+            log.info("Đang chờ 5s cho giao diện game hiển thị ổn định...")
+            time.sleep(5.0)
+    except Exception as e:
+        log.error("Lỗi khi kiểm tra/khởi chạy game: %s. Thử khởi chạy trực tiếp...", e)
+        try:
+            device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+            time.sleep(10.0)
+        except Exception:
+            pass
 
     # B3: ấn vào giữa màn hình
     log.info("B3: Ấn vào giữa màn hình...")
@@ -374,6 +416,9 @@ def run(device: Device, max_iterations: int | None = None) -> None:
     state_history: list[S] = []
     reset_slider_state()
     switched_account = False
+    # B4: flag an toàn BACK — chỉ True sau khi đã xác nhận WORLD lần đầu.
+    # False khi mới khởi động bot hoặc ngay sau khi chuyển tài khoản.
+    _back_safe = False
 
     # Read the n/N badge once on startup so we know the current queue
     # state (user may already have marches out) and the account's
@@ -469,6 +514,28 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             screen = device.snapshot()
         except Exception:
             log.exception("Chụp màn hình thất bại! Thiết bị có thể đã offline. Tiến hành tự động khôi phục kết nối...")
+            
+            # Kiểm tra và bật lại Bluestacks nếu bị crash/tắt
+            from core.bot.bluestack import start_bluestack, is_port_open, get_instance_name_by_port
+            s = str(device.serial).strip()
+            port_str = s.split(":")[-1] if ":" in s else s
+            is_bluestacks = False
+            try:
+                port = int(port_str)
+                if get_instance_name_by_port(port) is not None:
+                    is_bluestacks = True
+            except ValueError:
+                pass
+
+            if is_bluestacks:
+                try:
+                    if not is_port_open(port):
+                        log.warning("Giả lập Bluestacks của %s đã bị tắt/crash. Tiến hành khởi động lại giả lập...", device.serial)
+                        start_bluestack(device.serial)
+                        time.sleep(10.0)
+                except Exception as bs_err:
+                    log.error("Lỗi khi tự động khởi động lại Bluestacks: %s", bs_err)
+
             try:
                 # Khởi tạo lại kết nối Airtest Android
                 from airtest.core.android.android import Android
@@ -520,6 +587,11 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             stuck_count = 1
             last_state = state
 
+        # B4: Khi xác nhận được WORLD lần đầu → mở khóa cho phép BACK trong vòng lặp bình thường
+        if state == S.WORLD and not _back_safe:
+            log.info("Đã xác nhận WORLD lần đầu → _back_safe = True")
+            _back_safe = True
+
         state_history.append(state)
         if len(state_history) > 6:
             state_history.pop(0)
@@ -568,6 +640,7 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                         last_state = None
                         stuck_count = 0
                         dispatched_count = 0
+                        _back_safe = False   # chuyển acc → vào vùng cấm BACK
                         reset_slider_state()
 
                         # Đọc lại huy hiệu ban đầu cho tài khoản mới
@@ -643,11 +716,16 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 device, screen, state, stuck_count,
             )
         except Exception:
-            log.exception("Handler crash -> bấm BACK khẩn cấp")
-            try:
-                device.key("BACK")
-            except Exception:
-                pass
+            log.exception("Handler crash -> kiểm tra trạng thái trước khi bấm BACK")
+            # B4: Chỉ BACK khi _back_safe=True (đã từng xác nhận WORLD và không trong giai đoạn
+            # chuyển tài khoản). Tuyệt đối không BACK khi mới mở bot hoặc sau switch acc.
+            if _back_safe:
+                try:
+                    device.key("BACK")
+                except Exception:
+                    pass
+            else:
+                log.warning("Bỏ qua BACK khẩn cấp — đang trong giai đoạn khởi động/chuyển acc (_back_safe=False)")
             time.sleep(2.0)
             continue
 
@@ -688,6 +766,7 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 last_state = None
                 stuck_count = 0
                 dispatched_count = 0
+                _back_safe = False   # chuyển acc → vào vùng cấm BACK
                 reset_slider_state()
 
                 # Đọc lại huy hiệu ban đầu cho tài khoản mới
@@ -732,6 +811,7 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             last_state = None
             stuck_count = 0
             dispatched_count = 0
+            _back_safe = False   # chuyển acc → vào vùng cấm BACK
             reset_slider_state()
 
             # Đọc lại huy hiệu ban đầu cho tài khoản mới

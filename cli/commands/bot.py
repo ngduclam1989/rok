@@ -49,21 +49,53 @@ def cmd_bot(args: argparse.Namespace) -> int:
     if log_file:
         _attach_file_log_handler(log_file)
 
-    # Áp config xuống bot engine ngay trước khi chạy.
-    bot_engine.TARGET_LEVEL = args.target_level
-    bot_engine.MAX_SLOTS = args.max_slots
+    import sys
+    from core.config_io import load_bot_fleet_config
+    try:
+        fleet_cfg = load_bot_fleet_config(DEVICES_FILE)
+        dev_cfg = next((c for c in fleet_cfg if c.serial == serial), None)
+    except Exception:
+        dev_cfg = None
+
+    # Áp cấu hình từ CLI > devices.yaml > Mặc định hệ thống
+    resource = args.resource
+    if resource is None:
+        resource = dev_cfg.resource if dev_cfg else "wood"
+    
+    target_level = args.target_level
+    if target_level is None:
+        target_level = dev_cfg.target_level if dev_cfg else 5
+
+    max_slots = args.max_slots
+    if max_slots is None:
+        max_slots = dev_cfg.max_slots if dev_cfg else 4
+
+    # skip_level_adjust: kiểm tra xem có cờ trong sys.argv hay không, nếu không lấy từ devices.yaml
+    if "--skip-level-adjust" in sys.argv:
+        skip_level_adjust = True
+    else:
+        skip_level_adjust = dev_cfg.skip_level_adjust if dev_cfg else False
+
+    turn_wait_min = args.turn_wait_min
+    if turn_wait_min is None:
+        turn_wait_min = dev_cfg.turn_wait_min if dev_cfg else 60
+
+    # Lưu cấu hình xuống engine
+    bot_engine.TARGET_LEVEL = target_level
+    bot_engine.MAX_SLOTS = max_slots
     res_map = {"ngo": "corn", "food": "corn", "crop": "corn"}
-    args.resource = res_map.get(args.resource, args.resource)
-    bot_engine.RESOURCE_TAB = args.resource
-    bot_engine.SKIP_LEVEL_ADJUST = args.skip_level_adjust
-    bot_engine.TURN_WAIT_SEC = args.turn_wait_min * 60
+    resource = res_map.get(resource, resource)
+    bot_engine.RESOURCE_TAB = resource
+    bot_engine.SKIP_LEVEL_ADJUST = skip_level_adjust
+    bot_engine.TURN_WAIT_SEC = turn_wait_min * 60
+
     logging.info(
-        "Cấu hình bot: tài nguyên=%s cấp=%d slot=%d " "bỏ-chỉnh-cấp=%s đợi(phút)=%d",
+        "Cấu hình bot: tài nguyên=%s cấp=%d slot=%d bỏ-chỉnh-cấp=%s đợi(phút)=%d",
         bot_engine.RESOURCE_TAB,
         bot_engine.TARGET_LEVEL,
         bot_engine.MAX_SLOTS,
         bot_engine.SKIP_LEVEL_ADJUST,
-        args.turn_wait_min,
+        turn_wait_min,
     )
 
     from core.bot.bluestack import start_bluestack, stop_bluestack, get_instance_name_by_port
@@ -95,13 +127,17 @@ def cmd_bot(args: argparse.Namespace) -> int:
     else:
         logging.info("B1: Thiết bị không thuộc cấu hình Bluestacks hoặc không tìm thấy instance. Bỏ qua tự động bật/tắt.")
 
-    device = Device(serial, TEMPLATES_DIR)
+    control_mode = args.control_mode
+    if control_mode is None:
+        control_mode = dev_cfg.control_mode if dev_cfg else "adb"
+
+    device = Device(serial, TEMPLATES_DIR, control_mode=control_mode)
     try:
         bot_engine.run(device, max_iterations=args.max_iter)
     finally:
         if is_bluestacks:
-            logging.info("B5: Kết thúc bot. Chờ 5s trước khi tắt Bluestack...")
+            logging.info("B5: Kết thúc bot. Giữ nguyên trạng thái Bluestacks (không tắt).")
             time.sleep(5.0)
-            stop_bluestack(serial)
+            # stop_bluestack(serial)
 
     return 0

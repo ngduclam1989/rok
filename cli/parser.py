@@ -101,27 +101,27 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         help="Dừng sau N vòng (mặc định: chạy mãi)",
     )
     p.add_argument(
-        "--target-level", type=int, default=bot_engine.TARGET_LEVEL,
+        "--target-level", type=int, default=None,
         help=(
-            f"Cấp tài nguyên trên slider "
-            f"(mặc định {bot_engine.TARGET_LEVEL})."
+            "Cấp tài nguyên trên slider "
+            "(mặc định lấy từ devices.yaml hoặc 5)."
         ),
     )
     p.add_argument(
         "--resource",
         choices=["barb", "corn", "wood", "stone", "gold", "cycle", "ngo", "food", "crop"],
-        default=bot_engine.RESOURCE_TAB,
+        default=None,
         help=(
-            f"Tab tài nguyên (mặc định '{bot_engine.RESOURCE_TAB}'). "
+            "Tab tài nguyên (mặc định lấy từ devices.yaml hoặc 'wood'). "
             "barb=Người man rỡ, corn=Ngô/Lúa (Đất trồng), wood=Trại xẻ gỗ, "
             "stone=Trầm tích đá, gold=Trầm tích vàng, "
             "cycle=Xoay vòng (Ngô/Đá/Vàng/2 Gỗ)."
         ),
     )
     p.add_argument(
-        "--max-slots", type=int, default=bot_engine.MAX_SLOTS,
+        "--max-slots", type=int, default=None,
         help=(
-            f"Sức chứa hàng chờ (mặc định {bot_engine.MAX_SLOTS}, "
+            "Sức chứa hàng chờ (mặc định lấy từ devices.yaml hoặc 4, "
             "sẽ tự dò qua OCR huy hiệu)."
         ),
     )
@@ -135,11 +135,10 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument(
         "--turn-wait-min", type=int,
-        default=bot_engine.TURN_WAIT_SEC // 60,
+        default=None,
         help=(
             "Số phút ngủ giữa các lần kiểm tra hàng chờ khi đầy "
-            "(mặc định 60). Bot ngủ chừng đó, đọc huy hiệu n/N, "
-            "có slot trống thì dispatch lại, không thì ngủ tiếp."
+            "(mặc định lấy từ devices.yaml hoặc 60)."
         ),
     )
     p.add_argument(
@@ -148,6 +147,10 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
             "Ghi log ra file đường dẫn này (vẫn in stdout). "
             "Dùng cho fleet để mỗi máy có log riêng."
         ),
+    )
+    p.add_argument(
+        "--control-mode", choices=["adb", "physical_mouse"], default=None,
+        help="Chế độ điều khiển giả lập: adb hoặc physical_mouse (chiếm chuột thật PC, mặc định lấy từ devices.yaml hoặc adb)",
     )
     p.set_defaults(func=cmd_bot)
 
@@ -179,6 +182,15 @@ def _build_detect_parser(sub: argparse._SubParsersAction) -> None:
 
 def run(argv: list[str] | None = None) -> int:
     """Entry point gọi từ ``main.py``."""
+    import sys
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # Nếu chạy trực tiếp (nhấp đúp chuột file EXE) mà không truyền đối số nào
+    if not argv:
+        print("Không tìm thấy lệnh. Tự động khởi chạy bot Tuần tự (fleet --sequential)...")
+        argv = ["fleet", "--sequential"]
+
     parser = build_parser()
     args = parser.parse_args(argv)
     setup_logging(args.log_level)

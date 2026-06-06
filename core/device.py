@@ -37,9 +37,12 @@ class Device:
         cause of taps landing in the wrong place on this Samsung A71.
     """
 
-    def __init__(self, serial: str, templates_dir: Path) -> None:
+    def __init__(self, serial: str, templates_dir: Path, control_mode: str = "adb") -> None:
         self.serial = serial
         self.templates_dir = templates_dir
+        self.control_mode = control_mode
+        self._hwnd = None
+        self._top_hwnd = None
 
         if ":" in serial:
             try:
@@ -56,7 +59,14 @@ class Device:
         )
         # Reuse airtest's resolved adb path so we don't depend on PATH.
         self._adb_path = self._dev.adb.adb_path
-        log.info("Đã kết nối thiết bị %s (adb=%s)", serial, self._adb_path)
+        log.info("Đã kết nối thiết bị %s (adb=%s, control_mode=%s)", serial, self._adb_path, control_mode)
+
+        if control_mode == "physical_mouse":
+            self._hwnd = self._find_hwnd()
+            if self._hwnd:
+                log.info("[%s] Đã tìm thấy HWND Bluestacks: %s (cha: %s)", serial, self._hwnd, self._top_hwnd)
+            else:
+                log.error("[%s] KHÔNG tìm thấy HWND Bluestacks cho thiết bị này. Sẽ dùng ADB làm dự phòng.", serial)
 
     def _adb_shell(self, *args: str) -> str:
         cmd = [self._adb_path, "-s", self.serial, "shell", *args]
@@ -111,27 +121,202 @@ class Device:
         arr = np.array(img)
         return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
 
+    def _find_hwnd(self) -> int | None:
+        """Tìm HWND của cửa sổ Bluestacks ứng với cổng ADB hiện tại."""
+        try:
+            import win32gui
+            import win32process
+            import psutil
+            from core.bot.bluestack import get_instance_name_by_port
+
+            s = str(self.serial).strip()
+            port_str = s.split(":")[-1] if ":" in s else s
+            try:
+                port = int(port_str)
+            except ValueError:
+                return None
+
+            instance_name = get_instance_name_by_port(port)
+            if not instance_name:
+                log.warning("[%s] Không tìm thấy tên instance Bluestacks cho cổng %d", self.serial, port)
+                return None
+
+            target_pid = None
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    if proc.info['name'] == 'HD-Player.exe' and proc.info['cmdline']:
+                        cmdline = proc.info['cmdline']
+                        if '--instance' in cmdline:
+                            idx = cmdline.index('--instance')
+                            if idx + 1 < len(cmdline) and cmdline[idx+1] == instance_name:
+                                target_pid = proc.info['pid']
+                                break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+
+            if not target_pid:
+                log.warning("[%s] Không tìm thấy process HD-Player.exe cho instance '%s'", self.serial, instance_name)
+                return None
+
+            top_hwnds = []
+            def enum_windows_callback(hwnd, extra):
+                if win32gui.IsWindowVisible(hwnd):
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid == target_pid:
+                        title = win32gui.GetWindowText(hwnd)
+                        cls = win32gui.GetClassName(hwnd)
+                        # Bluestacks sử dụng lớp cửa sổ bắt đầu bằng 'Qt' hoặc có BlueStacks trong tiêu đề
+                        if title and (cls.startswith("Qt") or "BlueStacks" in title):
+                            top_hwnds.append(hwnd)
+                return True
+
+            win32gui.EnumWindows(enum_windows_callback, None)
+            if not top_hwnds:
+                return None
+
+            top_hwnd = top_hwnds[0]
+            
+            # Tìm cửa sổ con thực sự vẽ màn hình game (lớp BlueStacksApp) để làm mốc tọa độ không bị lệch do toolbar
+            render_hwnd = [None]
+            def enum_child_callback(hwnd, _):
+                cls = win32gui.GetClassName(hwnd)
+                if cls == "BlueStacksApp" or "BlueStacks" in cls:
+                    render_hwnd[0] = hwnd
+                    return False  # stop enum
+                return True
+                
+            try:
+                win32gui.EnumChildWindows(top_hwnd, enum_child_callback, None)
+            except Exception:
+                pass
+                
+            self._top_hwnd = top_hwnd
+            return render_hwnd[0] if render_hwnd[0] else top_hwnd
+        except Exception as e:
+            log.error("[%s] Lỗi khi tìm HWND Bluestacks: %s", self.serial, e)
+        return None
+
+    def _get_pc_coords(self, game_x: int, game_y: int) -> tuple[int, int] | None:
+        """Quy đổi tọa độ game sang tọa độ màn hình PC của cửa sổ Bluestacks."""
+        try:
+            import win32gui
+            # Lấy kích thước ảnh chụp hiện tại làm hệ tọa độ của game
+            snap = self.snapshot()
+            game_h, game_w = snap.shape[:2]
+
+            rect = win32gui.GetClientRect(self._hwnd)
+            left, top = win32gui.ClientToScreen(self._hwnd, (0, 0))
+            right, bottom = win32gui.ClientToScreen(self._hwnd, (rect[2], rect[3]))
+
+            win_w = right - left
+            win_h = bottom - top
+
+            pc_x = left + int(game_x * win_w / game_w)
+            pc_y = top + int(game_y * win_h / game_h)
+            return pc_x, pc_y
+        except Exception as e:
+            log.error("[%s] Lỗi quy đổi tọa độ chuột: %s", self.serial, e)
+            return None
+
+    def _physical_click(self, game_x: int, game_y: int) -> None:
+        import win32gui
+        import win32api
+        import win32con
+        
+        # Đưa Bluestacks lên trước bằng cửa sổ cha
+        try:
+            win32gui.SetForegroundWindow(self._top_hwnd)
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+        coords = self._get_pc_coords(game_x, game_y)
+        if coords:
+            pc_x, pc_y = coords
+            log.debug("[%s] physical click (%d, %d)", self.serial, pc_x, pc_y)
+            win32api.SetCursorPos((pc_x, pc_y))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
+            time.sleep(0.05)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x, pc_y, 0, 0)
+
+    def _physical_long_click(self, game_x: int, game_y: int, duration_ms: int) -> None:
+        import win32gui
+        import win32api
+        import win32con
+        
+        try:
+            win32gui.SetForegroundWindow(self._top_hwnd)
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+        coords = self._get_pc_coords(game_x, game_y)
+        if coords:
+            pc_x, pc_y = coords
+            log.debug("[%s] physical long click (%d, %d) %dms", self.serial, pc_x, pc_y, duration_ms)
+            win32api.SetCursorPos((pc_x, pc_y))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
+            time.sleep(duration_ms / 1000.0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x, pc_y, 0, 0)
+
+    def _physical_swipe(self, game_x1: int, game_y1: int, game_x2: int, game_y2: int, duration_ms: int) -> None:
+        import win32gui
+        import win32api
+        import win32con
+        
+        try:
+            win32gui.SetForegroundWindow(self._top_hwnd)
+            time.sleep(0.05)
+        except Exception:
+            pass
+
+        coords1 = self._get_pc_coords(game_x1, game_y1)
+        coords2 = self._get_pc_coords(game_x2, game_y2)
+        if coords1 and coords2:
+            pc_x1, pc_y1 = coords1
+            pc_x2, pc_y2 = coords2
+            log.debug("[%s] physical swipe (%d, %d) -> (%d, %d)", self.serial, pc_x1, pc_y1, pc_x2, pc_y2)
+            
+            # Đặt chuột vào vị trí bắt đầu và nhấn
+            win32api.SetCursorPos((pc_x1, pc_y1))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x1, pc_y1, 0, 0)
+            time.sleep(0.05)
+            
+            # Chia làm các bước trượt cho mượt
+            steps = max(1, int(duration_ms / 10))
+            for i in range(1, steps + 1):
+                t = i / steps
+                curr_x = int(pc_x1 + (pc_x2 - pc_x1) * t)
+                curr_y = int(pc_y1 + (pc_y2 - pc_y1) * t)
+                win32api.SetCursorPos((curr_x, curr_y))
+                time.sleep(0.01)
+                
+            # Thả chuột ở vị trí đích
+            win32api.SetCursorPos((pc_x2, pc_y2))
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
+            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
+
     def tap(self, x: int, y: int) -> None:
         log.debug("[%s] tap (%d,%d)", self.serial, x, y)
-        self._adb_shell("input", "tap", str(int(x)), str(int(y)))
+        if self.control_mode == "physical_mouse" and self._hwnd:
+            self._physical_click(x, y)
+        else:
+            self._adb_shell("input", "tap", str(int(x)), str(int(y)))
 
     def long_tap(self, x: int, y: int, duration_ms: int = 150) -> None:
-        """Long tap via zero-distance swipe.
-
-        Some buttons (slider minus/plus on this game) only register
-        when held for a few frames — a single `input tap` is too fast
-        and gets ignored. We model long-tap as a swipe with the same
-        start/end coords for `duration_ms` milliseconds.
-        """
+        """Long tap via zero-distance swipe."""
         log.debug(
             "[%s] long_tap (%d,%d) %dms", self.serial, x, y, duration_ms
         )
-        self._adb_shell(
-            "input", "swipe",
-            str(int(x)), str(int(y)),
-            str(int(x)), str(int(y)),
-            str(int(duration_ms)),
-        )
+        if self.control_mode == "physical_mouse" and self._hwnd:
+            self._physical_long_click(x, y, duration_ms)
+        else:
+            self._adb_shell(
+                "input", "swipe",
+                str(int(x)), str(int(y)),
+                str(int(x)), str(int(y)),
+                str(int(duration_ms)),
+            )
 
     def swipe(
         self,
@@ -145,12 +330,15 @@ class Device:
             "[%s] swipe (%d,%d)->(%d,%d) %dms",
             self.serial, x1, y1, x2, y2, duration_ms,
         )
-        self._adb_shell(
-            "input", "swipe",
-            str(int(x1)), str(int(y1)),
-            str(int(x2)), str(int(y2)),
-            str(int(duration_ms)),
-        )
+        if self.control_mode == "physical_mouse" and self._hwnd:
+            self._physical_swipe(x1, y1, x2, y2, duration_ms)
+        else:
+            self._adb_shell(
+                "input", "swipe",
+                str(int(x1)), str(int(y1)),
+                str(int(x2)), str(int(y2)),
+                str(int(duration_ms)),
+            )
 
     def key(self, name: str) -> None:
         log.debug("[%s] key %s", self.serial, name)

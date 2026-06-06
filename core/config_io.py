@@ -27,6 +27,7 @@ _BOT_CONFIG_DEFAULTS: dict[str, object] = {
     "max_slots": 4,
     "skip_level_adjust": False,
     "turn_wait_min": 60,
+    "control_mode": "adb",
 }
 
 def normalize_resource(res: str) -> str:
@@ -54,6 +55,7 @@ class BotDeviceConfig:
     max_slots: int
     skip_level_adjust: bool
     turn_wait_min: int
+    control_mode: str
 
     def to_bot_cli_args(self) -> list[str]:
         """Chuyển thành đối số CLI cho `python main.py bot ...`."""
@@ -63,6 +65,7 @@ class BotDeviceConfig:
             "--target-level", str(self.target_level),
             "--max-slots", str(self.max_slots),
             "--turn-wait-min", str(self.turn_wait_min),
+            "--control-mode", self.control_mode,
         ]
         if self.skip_level_adjust:
             args.append("--skip-level-adjust")
@@ -126,6 +129,7 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
             max_slots=int(cfg["max_slots"]),
             skip_level_adjust=bool(cfg["skip_level_adjust"]),
             turn_wait_min=int(cfg["turn_wait_min"]),
+            control_mode=str(cfg["control_mode"]),
         ))
     return out
 

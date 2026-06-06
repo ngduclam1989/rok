@@ -20,14 +20,14 @@ defaults:
   max_slots: 4
   skip_level_adjust: false
   turn_wait_min: 60
+  control_mode: adb        # adb (mặc định) hoặc physical_mouse (chiếm chuột thật PC)
 
 devices:
   - name: phone-1
     serial: 127.0.0.1:5555
   - name: phone-2
-    serial: 127.0.0.1:5575
+    serial: 127.0.0.1:5615
   - name: phone-3
-    serial: 127.0.0.1:5585   
+    serial: 127.0.0.1:5625
   - name: phone-4
-    serial: 127.0.0.1:5595
-   
+    serial: 127.0.0.1:5635

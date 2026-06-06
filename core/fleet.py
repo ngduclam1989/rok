@@ -66,13 +66,24 @@ class _Worker:
         self.reader: threading.Thread | None = None
 
     def start(self) -> None:
-        cmd = [
-            self.python_exe,
-            str(self.main_script),
-            "bot",
-            *self.member.bot_args,
-            "--log-file", str(self.log_file),
-        ]
+        import sys
+        if getattr(sys, "frozen", False):
+            # When frozen as an EXE, sys.executable (python_exe) is RoKBot.exe.
+            # We must not pass main_script (main.py) as an argument to the EXE.
+            cmd = [
+                self.python_exe,
+                "bot",
+                *self.member.bot_args,
+                "--log-file", str(self.log_file),
+            ]
+        else:
+            cmd = [
+                self.python_exe,
+                str(self.main_script),
+                "bot",
+                *self.member.bot_args,
+                "--log-file", str(self.log_file),
+            ]
         log.info(
             "thiết bị %s: khởi động subprocess (serial=%s)",
             self.member.name, self.member.serial,

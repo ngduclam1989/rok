@@ -43,6 +43,10 @@ def cmd_fleet(args: argparse.Namespace) -> int:
         logging.info("=== CHẾ ĐỘ CHẠY TUẦN TỰ (SEQUENTIAL MODE) ===")
         install_signal_handler()
 
+        import random
+
+        is_first_cycle = True   # Chu kỳ đầu: 1→2→3→4 theo thứ tự
+
         while True:
             # Load lại devices.yaml mỗi chu kỳ để cập nhật thay đổi (ví dụ: comment/uncomment máy)
             members_cfg = load_bot_fleet_config(DEVICES_FILE)
@@ -53,18 +57,34 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     break
                 continue
 
+            # B6: Sắp xếp thứ tự kiểm tra thiết bị
+            #   - Chu kỳ ĐẦU TIÊN (lúc khởi động): 1 → 2 → 3 → 4 (đúng thứ tự trong devices.yaml)
+            #   - Từ chu kỳ THỨ 2 trở đi    : máy 1 cố định đứng đầu, random các máy còn lại
+            if is_first_cycle:
+                ordered_members = list(members_cfg)
+                is_first_cycle = False
+                cycle_label = "Khởi động — thứ tự mặc định"
+            else:
+                primary = members_cfg[:1]       # máy 1 — luôn kiểm tra trước
+                rest    = list(members_cfg[1:]) # máy 2, 3, 4, ... — xáo trộn
+                random.shuffle(rest)
+                ordered_members = primary + rest
+                cycle_label = "Random"
+
             sys.stdout.write(
-                f"\n=== BẮT ĐẦU CHU KỲ CHẠY TUẦN TỰ ({len(members_cfg)} máy) ===\n",
+                f"\n=== BẮT ĐẦU CHU KỲ KIỂM TRA TUẦN TỰ [{cycle_label}] "
+                f"(Thứ tự: {[m.name for m in ordered_members]}) ===\n",
             )
-            
-            for index, c in enumerate(members_cfg):
+
+
+            for index, c in enumerate(ordered_members):
                 if should_stop():
                     break
 
                 sys.stdout.write(
-                    f"[{index + 1}/{len(members_cfg)}] Đang mở và chạy thiết bị: {c.name} ({c.serial})...\n"
+                    f"[{index + 1}/{len(ordered_members)}] Đang kiểm tra thiết bị: {c.name} ({c.serial})...\n"
                 )
-                
+
                 # Kiểm tra xem có phải Bluestacks không
                 s = str(c.serial).strip()
                 port_str = s.split(":")[-1] if ":" in s else s
@@ -89,22 +109,23 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                             logging.info("[%s] Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...", c.name)
                             time.sleep(10.0)
                         else:
-                            logging.info("[%s] Bluestacks đã bật sẵn. Bỏ qua chờ 10s.", c.name)
-                    
+                            logging.info("[%s] Bluestacks đã bật sẵn.", c.name)
+
                     # Khởi tạo thiết bị
                     try:
-                        device = Device(c.serial, TEMPLATES_DIR)
+                        control_mode = getattr(c, "control_mode", "adb")
+                        device = Device(c.serial, TEMPLATES_DIR, control_mode=control_mode)
                     except Exception as e:
                         logging.error("Không thể kết nối đến thiết bị %s: %s. Chuyển sang thiết bị tiếp theo.", c.name, e)
                         continue
-                        
+
                     # Gán tham số cấu hình bot
                     bot_engine.TARGET_LEVEL = c.target_level
                     bot_engine.MAX_SLOTS = c.max_slots
                     bot_engine.RESOURCE_TAB = c.resource
                     bot_engine.SKIP_LEVEL_ADJUST = c.skip_level_adjust
                     bot_engine.TURN_WAIT_SEC = c.turn_wait_min * 60
-                    
+
                     # Chạy kịch bản farm
                     logging.info("Bắt đầu chạy kịch bản farm cho thiết bị %s...", c.name)
                     try:
@@ -112,14 +133,11 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     except Exception as e:
                         logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
                 finally:
-                    # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, chờ 5s và tắt bluestack máy hiện tại
-                    # Đảm bảo máy này tắt xong rồi mới chuyển sang vòng lặp tiếp theo
+                    # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và giữ nguyên Bluestacks (không tắt)
                     if is_bluestacks:
-                        logging.info(">>> Dọn dẹp thiết bị %s. Chờ 5s trước khi tắt Bluestack...", c.name)
+                        logging.info(">>> Dọn dẹp thiết bị %s. Giữ nguyên trạng thái Bluestacks...", c.name)
                         time.sleep(5.0)
-                        stop_bluestack(c.serial)
-                        # Chờ thêm 3s nữa để đảm bảo tiến trình Bluestacks đã hoàn toàn giải phóng cổng và tắt hẳn
-                        time.sleep(3.0)
+                        # Đã tắt stop_bluestack để giữ Bluestacks luôn mở
                     else:
                         logging.info(">>> Hoàn thành dọn dẹp thiết bị %s. Chờ 5s...\n", c.name)
                         time.sleep(5.0)
@@ -128,15 +146,31 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                 logging.info("Phát hiện tín hiệu dừng. Kết thúc chạy tuần tự.")
                 break
 
-            logging.info("=== ĐÃ HOÀN THÀNH CHU KỲ CHẠY TUẦN TỰ CHO TOÀN BỘ DANH SÁCH THIẾT BỊ! ===")
-            logging.info("Chờ 2 giờ (7200 giây) trước khi chạy lại từ đầu...")
-            sleep_with_stop_check_exact(2 * 3600)
-            if should_stop():
-                break
+            # B6: Sau khi quét xong TOÀN BỘ chu kỳ (tất cả thiết bị),
+            # chờ ngẫu nhiên 2h–2h10' (7200–7800 giây) rồi mới bắt đầu chu kỳ tiếp theo.
+            wait_sec = random.randint(7200, 7800)
+            wait_h = wait_sec // 3600
+            wait_m = (wait_sec % 3600) // 60
+            sys.stdout.write(
+                f"\n[B6] Đã quét xong {len(ordered_members)} thiết bị. "
+                f"Chờ {wait_h}h{wait_m:02d}' trước chu kỳ tiếp theo...\n\n"
+            )
+            sleep_with_stop_check_exact(float(wait_sec))
+
+
 
         return 0
 
     # Chế độ chạy SONG SONG mặc định
+    has_physical_mouse = any(getattr(c, "control_mode", "adb") == "physical_mouse" for c in members_cfg)
+    if has_physical_mouse:
+        logging.error(
+            "CẢNH BÁO NGHIÊM TRỌNG: Bạn không thể chạy SONG SONG nhiều thiết bị khi sử dụng chế độ 'physical_mouse' (chiếm chuột). "
+            "Chuột máy tính sẽ bị nhảy loạn xạ giữa các cửa sổ. "
+            "Vui lòng chuyển sang chạy TUẦN TỰ (dùng tham số --sequential) hoặc dùng chế độ 'adb'."
+        )
+        return 1
+
     sys.stdout.write(
         f"=== Khởi động fleet ({len(members_cfg)} máy) ===\n",
     )

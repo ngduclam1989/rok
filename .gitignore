@@ -69,3 +69,5 @@ desktop.ini
 
 # ===== Standalone Compiled EXE =====
 RoKBot.exe
+.scratch/
+.logs/

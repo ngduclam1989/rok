@@ -39,5 +39,12 @@ _RESOURCE_TAB_X_PCT: dict[str, float] = {
     "gold": 0.738,
     "cycle": 0.497,
 }
-"""Hard-coded fallback X positions (pct of width) for each resource tab.
-Used when OCR of the bottom-strip labels fails. Y is always ~91%."""
+# Các cài đặt cấu hình thời gian chờ (được đọc và ghi đè từ devices.yaml)
+CYCLE_WAIT_MIN: int = 60
+CYCLE_WAIT_VARIANCE_MIN: int = 10
+BG_ACTION_INTERVAL_MIN: int = 10
+BG_ACTION_INTERVAL_MAX: int = 20
+DELAY_AFTER_POPUP_MIN: int = 5
+DELAY_AFTER_POPUP_MAX: int = 15
+DELAY_AFTER_DISPATCH_MIN: int = 10
+DELAY_AFTER_DISPATCH_MAX: int = 20

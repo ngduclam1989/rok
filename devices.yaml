@@ -22,12 +22,28 @@ defaults:
   turn_wait_min: 60
   control_mode: adb        # adb (mặc định) hoặc physical_mouse (chiếm chuột thật PC)
 
-devices:
-  - name: phone-1
-    serial: 127.0.0.1:5555
-  - name: phone-2
-    serial: 127.0.0.1:5615
-  - name: phone-3
-    serial: 127.0.0.1:5625
-  - name: phone-4
-    serial: 127.0.0.1:5635
+  # Cấu hình chu kỳ và tiến trình ngầm:
+  cycle_wait_min: 60           # Thời gian chờ giữa các chu kỳ farm (phút)
+  cycle_wait_variance_min: 10  # Độ lệch thời gian chờ giữa các chu kỳ (phút, ví dụ 60 +- 10 phút)
+  bg_action_interval_min: 10   # Khoảng thời gian tối thiểu giữa các hành động ngầm (phút)
+  bg_action_interval_max: 20   # Khoảng thời gian tối đa giữa các hành động ngầm (phút)
+  delay_after_popup_min: 5     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
+  delay_after_popup_max: 15    # Thời gian chờ tối đa sau khi tắt popup (giây)
+  delay_after_dispatch_min: 10 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
+  delay_after_dispatch_max: 20 # Thời gian chờ tối đa sau khi gửi quân (giây)
+
+# Danh sách thiết bị.
+# Nếu bạn không điền gì ở đây (hoặc xóa/comment block này), bot sẽ tự động quét
+# file cấu hình bluestacks.conf và kết nối tới toàn bộ máy ảo đang có trên Bluestacks
+# với tên được đặt theo tên hiển thị trên Bluestacks (ví dụ: 1, 2, 3, 4...).
+#
+# Ví dụ cấu hình tay (chỉ điền nếu muốn chạy chọn lọc hoặc cổng khác):
+# devices:
+#   - name: phone-1
+#     serial: 127.0.0.1:5555
+#   - name: phone-2
+#     serial: 127.0.0.1:5615
+#   - name: phone-3
+#     serial: 127.0.0.1:5625
+#   - name: phone-4
+#     serial: 127.0.0.1:5635

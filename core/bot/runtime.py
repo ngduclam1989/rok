@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
 import time
 from datetime import datetime, timedelta
 
@@ -40,27 +41,75 @@ from .handlers import (
 from .readers import read_march_panel_times, read_slot_badge
 from .signals import (
     install_signal_handler,
+    install_pause_hotkey,
     pause,
     register_serial,
     should_stop,
     sleep_with_stop_check,
     sleep_with_stop_check_exact,
+    wait_if_paused,
 )
 from .state import S
+from .input_lock import lock_input, unlock_input
 
 log = logging.getLogger(__name__)
 
 
 def _cleanup_captures() -> None:
-    """Delete successful PNG images in captures/, only keeping the FAILED ones."""
+    """Delete successful PNG images in captures/, only keeping the FAILED, UNKNOWN, or FIRST_WORLD ones."""
     try:
         if not CAPTURES_DIR.exists():
             return
         for p in CAPTURES_DIR.glob("*.png"):
-            if "FAILED" not in p.name:
+            if "FAILED" not in p.name and "UNKNOWN" not in p.name and "FIRST_WORLD" not in p.name:
                 p.unlink(missing_ok=True)
     except Exception as e:
         log.warning("Lỗi dọn dẹp ảnh captures thành công: %s", e)
+
+
+def _save_unknown_screenshot(device: Device, screen: np.ndarray) -> None:
+    import cv2
+    try:
+        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+        serial_clean = str(device.serial).replace(":", "_").replace(".", "_")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"UNKNOWN_{serial_clean}_{timestamp}.png"
+        filepath = CAPTURES_DIR / filename
+        cv2.imwrite(str(filepath), screen)
+        log.info("[B0] Đã lưu màn hình UNKNOWN: %s", filename)
+    except Exception as e:
+        log.warning("Không thể lưu màn hình UNKNOWN: %s", e)
+
+
+def _save_first_world_screenshot(device: Device, screen: np.ndarray) -> None:
+    import cv2
+    try:
+        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+        serial_clean = str(device.serial).replace(":", "_").replace(".", "_")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"FIRST_WORLD_{serial_clean}_{timestamp}.png"
+        filepath = CAPTURES_DIR / filename
+        cv2.imwrite(str(filepath), screen)
+        log.info("[B0] Đã lưu màn hình WORLD đầu tiên của tài khoản/máy mới: %s", filename)
+    except Exception as e:
+        log.warning("Không thể lưu màn hình FIRST_WORLD: %s", e)
+
+
+def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4) -> tuple[int | None, int | None]:
+    """Thử đọc huy hiệu n/N nhiều lần để đảm bảo có kết quả chính xác ngay khi vào acc/khởi động."""
+    for attempt in range(max_attempts):
+        try:
+            screen = device.snapshot()
+            ocr.clear_cache()
+            n, mx = read_slot_badge(screen)
+            if n is not None and mx is not None:
+                log.info("Đọc thành công huy hiệu hàng đợi (lần %d): %d/%d", attempt + 1, n, mx)
+                return n, mx
+            log.warning("Thử đọc huy hiệu hàng đợi lần %d thất bại -> chờ 2s thử lại...", attempt + 1)
+        except Exception as e:
+            log.warning("Lỗi khi chụp/đọc huy hiệu lần %d: %s", attempt + 1, e)
+        time.sleep(2.0)
+    return None, None
 
 
 def _initial_navigate_to_world(device: Device) -> None:
@@ -140,6 +189,8 @@ def _initial_navigate_to_world(device: Device) -> None:
         if not device.is_game_running():
             log.warning("Đang ở %s và phát hiện game không chạy/crash -> Khởi chạy lại game com.rok.gp.vn...", state.value)
             device.start_game()
+            device._back_locked_until = time.monotonic() + 120.0
+            log.info("Khoá nút BACK trong 2 phút sau khi khởi chạy lại game.")
             time.sleep(25.0)  # B2: chờ 25s khi mở game mới
         else:
             log.info("Đang ở %s nhưng game vẫn đang chạy. Mang game lên trước (bring to front) và chờ 5s...", state.value)
@@ -283,6 +334,7 @@ def _handle_queue_full(device: Device, switched_account: bool) -> bool:
     if success:
         log.info("Chuyển tài khoản thành công! Đợi 10s cho game load tài khoản mới...")
         time.sleep(10.0)
+        config.CYCLE_RESOURCES = None
         return True
     else:
         log.warning("Chuyển tài khoản thất bại! Đang dừng bot...")
@@ -321,7 +373,25 @@ def _dispatch_to_handler(
 
 
 def run(device: Device, max_iterations: int | None = None) -> None:
+    # B0: Khoá toàn bộ input chuột và bàn phím PC trong suốt thời gian bot chạy.
+    # Người dùng không thể di chuột hay bấm phím làm nhiễu; chỉ bot điều khiển.
+    # unlock_input() tự động gọi khi bot kết thúc (kể cả khi crash).
+    lock_input()
+    try:
+        _run_body(device, max_iterations)
+    finally:
+        # B5: Dọn dẹp sau khi kết thúc bot (thành công hoặc lỗi)
+        log.info("B5: Bắt đầu dọn dẹp sau khi kết thúc bot (thành công hoặc lỗi)...")
+        try:
+            _cleanup_captures()
+        except Exception:
+            pass
+        unlock_input()
+
+
+def _run_body(device: Device, max_iterations: int | None = None) -> None:
     install_signal_handler()
+    install_pause_hotkey()   # Đăng kí phím tắt Ctrl+Space pause/resume
     register_serial(device.serial)
     CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
     # Dọn STOP flag cũ ở startup:
@@ -340,6 +410,8 @@ def run(device: Device, max_iterations: int | None = None) -> None:
         per_dev_flag.unlink()
 
     device.keep_awake()
+    device._back_locked_until = 0.0
+    config.CYCLE_RESOURCES = None
 
     # B2: kiểm tra xem Bluestacks có bật không, sau đó kiểm tra xem game có bật không
     log.info("B2: Kiểm tra trạng thái của giả lập và game...")
@@ -391,20 +463,19 @@ def run(device: Device, max_iterations: int | None = None) -> None:
         except Exception:
             pass
 
-    # B3: ấn vào giữa màn hình
-    log.info("B3: Ấn vào giữa màn hình...")
+    # B2: Khoá BACK 2 phút sau khi bật game (tránh BACK khi game chưa ổn định)
+    device._back_locked_until = time.monotonic() + 120.0
+    log.info("B2: Khoá nút BACK trong 2 phút kể từ bây giờ.")
+
+    # B3: tap giữa (1200, 540) bỏ qua pop-up, chờ 5-15s
+    log.info("B3: Tap (1200, 540) để bỏ qua pop-up...")
     try:
-        screen = device.snapshot()
-        h, w = screen.shape[:2]
-        cx, cy = int(w * 0.5), int(h * 0.5)
-        device.tap(cx, cy)
+        device.tap(1200, 540)
     except Exception as e:
-        log.warning("Không chụp được màn hình, dùng tọa độ mặc định (1200, 540): %s", e)
-        try:
-            device.tap(1200, 540)
-        except Exception:
-            pass
-    time.sleep(5.0)
+        log.warning("B3: Tap (1200, 540) thất bại: %s", e)
+    wait_b3 = random.randint(config.DELAY_AFTER_POPUP_MIN, config.DELAY_AFTER_POPUP_MAX)
+    log.info("B3: Chờ %ds trước khi đưa game về WORLD...", wait_b3)
+    time.sleep(float(wait_b3))
 
     # Normalise to WORLD before entering the main loop.
     _initial_navigate_to_world(device)
@@ -416,38 +487,30 @@ def run(device: Device, max_iterations: int | None = None) -> None:
     state_history: list[S] = []
     reset_slider_state()
     switched_account = False
-    # B4: flag an toàn BACK — chỉ True sau khi đã xác nhận WORLD lần đầu.
-    # False khi mới khởi động bot hoặc ngay sau khi chuyển tài khoản.
-    _back_safe = False
+    is_first_world_snapshot = True
 
     # Read the n/N badge once on startup so we know the current queue
     # state (user may already have marches out) and the account's
     # real MAX_SLOTS (varies with VIP / talents).
-    try:
-        init_screen = device.snapshot()
-        ocr.clear_cache()
-        n0, mx0 = read_slot_badge(init_screen)
-        if mx0 is not None and mx0 > 0:
-            if mx0 != config.MAX_SLOTS:
-                log.info(
-                    "Sức chứa hàng chờ ban đầu: %d (CLI cài %d)",
-                    mx0, config.MAX_SLOTS,
-                )
-            config.MAX_SLOTS = mx0
-        if n0 is not None:
-            dispatched_count = n0
+    n0, mx0 = _read_initial_slot_badge_with_retries(device)
+    if mx0 is not None and mx0 > 0:
+        if mx0 != config.MAX_SLOTS:
             log.info(
-                "Hàng chờ ban đầu: %d/%d -> bot bắt đầu từ đây",
-                n0, config.MAX_SLOTS,
+                "Sức chứa hàng chờ ban đầu: %d (CLI cài %d)",
+                mx0, config.MAX_SLOTS,
             )
-        else:
-            log.warning(
-                "Không đọc được huy hiệu ban đầu -> coi như 0/%d",
-                config.MAX_SLOTS,
-            )
-            dispatched_count = 0
-    except Exception:
-        log.exception("Đọc huy hiệu ban đầu thất bại")
+        config.MAX_SLOTS = mx0
+    if n0 is not None:
+        dispatched_count = n0
+        log.info(
+            "Hàng chờ ban đầu: %d/%d -> bot bắt đầu từ đây",
+            n0, config.MAX_SLOTS,
+        )
+    else:
+        log.warning(
+            "Không đọc được huy hiệu ban đầu sau các lần thử -> coi như 0/%d",
+            config.MAX_SLOTS,
+        )
         dispatched_count = 0
 
     # Nếu hàng chờ đã đầy từ đầu:
@@ -464,23 +527,21 @@ def run(device: Device, max_iterations: int | None = None) -> None:
         last_state = None
         stuck_count = 0
         dispatched_count = 0
+        is_first_world_snapshot = True
         reset_slider_state()
+        # Khoá BACK 2 phút sau khi chuyển acc
+        device._back_locked_until = time.monotonic() + 120.0
+        log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
 
         # Đọc lại huy hiệu ban đầu cho tài khoản mới
-        try:
-            init_screen = device.snapshot()
-            ocr.clear_cache()
-            n0, mx0 = read_slot_badge(init_screen)
-            if mx0 is not None and mx0 > 0:
-                config.MAX_SLOTS = mx0
-            if n0 is not None:
-                dispatched_count = n0
-                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-            else:
-                log.warning("Không đọc được huy hiệu tài khoản mới -> coi như 0/%d", config.MAX_SLOTS)
-                dispatched_count = 0
-        except Exception:
-            log.exception("Đọc huy hiệu tài khoản mới thất bại")
+        n0, mx0 = _read_initial_slot_badge_with_retries(device)
+        if mx0 is not None and mx0 > 0:
+            config.MAX_SLOTS = mx0
+        if n0 is not None:
+            dispatched_count = n0
+            log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+        else:
+            log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
             dispatched_count = 0
 
         if dispatched_count >= config.MAX_SLOTS:
@@ -488,6 +549,11 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             return
 
     while not should_stop():
+        # Kiểm tra và chờ nếu bot đang paused (Ctrl+Space)
+        wait_if_paused()
+        if should_stop():
+            break
+
         iteration += 1
         if max_iterations and iteration > max_iterations:
             log.info(
@@ -500,14 +566,7 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             iteration, dispatched_count,
         )
 
-        # Cứ 5 vòng kiểm tra xem game còn mở hay không, nếu đã mất thì mở lại
-        if iteration > 1 and iteration % 5 == 0:
-            log.info("Kiểm tra định kỳ xem ứng dụng game còn chạy không...")
-            if not device.is_game_running():
-                log.warning("Phát hiện ứng dụng game đã bị đóng hoặc crash! Đang tự động khởi động lại...")
-                device.start_game()
-                time.sleep(15.0)
-                _initial_navigate_to_world(device)
+
 
         t0 = time.monotonic()
         try:
@@ -551,6 +610,8 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 if not device.is_game_running():
                     log.warning("Game không chạy sau khi khôi phục kết nối -> Đang khởi chạy lại...")
                     device.start_game()
+                    device._back_locked_until = time.monotonic() + 120.0
+                    log.info("Khoá nút BACK trong 2 phút sau khi khởi chạy lại game.")
                     time.sleep(15.0)
                 else:
                     log.info("Game vẫn đang chạy sau khi khôi phục kết nối. Đưa game lên trước...")
@@ -587,10 +648,65 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             stuck_count = 1
             last_state = state
 
-        # B4: Khi xác nhận được WORLD lần đầu → mở khóa cho phép BACK trong vòng lặp bình thường
-        if state == S.WORLD and not _back_safe:
-            log.info("Đã xác nhận WORLD lần đầu → _back_safe = True")
-            _back_safe = True
+        if state == S.UNKNOWN and stuck_count == 1:
+            _save_unknown_screenshot(device, screen)
+
+        if state == S.WORLD and is_first_world_snapshot:
+            _save_first_world_screenshot(device, screen)
+            is_first_world_snapshot = False
+
+        if state == S.WORLD:
+            try:
+                n_world, mx_world = read_slot_badge(screen)
+                if mx_world is not None and mx_world > 0:
+                    config.MAX_SLOTS = mx_world
+                if n_world is not None:
+                    if n_world != dispatched_count:
+                        log.info(
+                            "Đồng bộ hàng đợi ở WORLD: bot tưởng %d/%d, thực tế %d/%d",
+                            dispatched_count, config.MAX_SLOTS,
+                            n_world, config.MAX_SLOTS,
+                        )
+                        dispatched_count = n_world
+            except Exception:
+                pass
+
+            if dispatched_count >= config.MAX_SLOTS:
+                success = _handle_queue_full(device, switched_account)
+                if not success:
+                    return
+
+                switched_account = True
+                log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
+                _initial_navigate_to_world(device)
+
+                # Reset trạng thái
+                last_state = None
+                stuck_count = 0
+                dispatched_count = 0
+                is_first_world_snapshot = True
+                reset_slider_state()
+                # Khoá BACK 2 phút sau khi chuyển acc
+                device._back_locked_until = time.monotonic() + 120.0
+                log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
+
+                # Đọc lại huy hiệu ban đầu cho tài khoản mới
+                n0, mx0 = _read_initial_slot_badge_with_retries(device)
+                if mx0 is not None and mx0 > 0:
+                    config.MAX_SLOTS = mx0
+                if n0 is not None:
+                    dispatched_count = n0
+                    log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+                else:
+                    log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
+                    dispatched_count = 0
+
+                if dispatched_count >= config.MAX_SLOTS:
+                    _handle_queue_full(device, switched_account)
+                    return
+                continue
+
+
 
         state_history.append(state)
         if len(state_history) > 6:
@@ -640,23 +756,21 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                         last_state = None
                         stuck_count = 0
                         dispatched_count = 0
-                        _back_safe = False   # chuyển acc → vào vùng cấm BACK
+                        is_first_world_snapshot = True
                         reset_slider_state()
+                        # Khoá BACK 2 phút sau khi chuyển acc
+                        device._back_locked_until = time.monotonic() + 120.0
+                        log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
 
                         # Đọc lại huy hiệu ban đầu cho tài khoản mới
-                        try:
-                            init_screen = device.snapshot()
-                            ocr.clear_cache()
-                            n0, mx0 = read_slot_badge(init_screen)
-                            if mx0 is not None and mx0 > 0:
-                                config.MAX_SLOTS = mx0
-                            if n0 is not None:
-                                dispatched_count = n0
-                                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                            else:
-                                log.warning("Không đọc được huy hiệu tài khoản mới -> coi như 0/%d", config.MAX_SLOTS)
-                                dispatched_count = 0
-                        except Exception:
+                        n0, mx0 = _read_initial_slot_badge_with_retries(device)
+                        if mx0 is not None and mx0 > 0:
+                            config.MAX_SLOTS = mx0
+                        if n0 is not None:
+                            dispatched_count = n0
+                            log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+                        else:
+                            log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
                             dispatched_count = 0
 
                         if dispatched_count >= config.MAX_SLOTS:
@@ -696,36 +810,43 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             state = S.UNKNOWN
             state_history.clear()
 
-        # === ĐOẠN CODE MỚI: Xoay vòng tài nguyên (1 ngô, 1 đá, 1 vàng, 2 gỗ) ===
+        # Xoay vòng tài nguyên: random ngô, đá, vàng, gỗ trong 4 lượt đầu, nếu nhiều hơn thì random 1 trong 4
         if getattr(config, "ORIGINAL_RESOURCE", None) is None:
             config.ORIGINAL_RESOURCE = config.RESOURCE_TAB
 
         if config.ORIGINAL_RESOURCE == "cycle":
-            cycle_list = ["corn", "stone", "gold", "wood", "wood"]
-            current_resource = cycle_list[dispatched_count % len(cycle_list)]
+            if not getattr(config, "CYCLE_RESOURCES", None):
+                config.CYCLE_RESOURCES = ["corn", "stone", "gold", "wood"]
+                random.shuffle(config.CYCLE_RESOURCES)
+                log.info("Khởi tạo chu kỳ tài nguyên ngẫu nhiên cho tài khoản: %s", config.CYCLE_RESOURCES)
+
+            if dispatched_count < len(config.CYCLE_RESOURCES):
+                current_resource = config.CYCLE_RESOURCES[dispatched_count]
+            else:
+                current_resource = random.choice(config.CYCLE_RESOURCES)
+
             if config.RESOURCE_TAB != current_resource:
                 config.RESOURCE_TAB = current_resource
                 log.info(
                     "Xoay vòng tài nguyên (cycle) -> Đạo thứ %d chọn: %s",
                     dispatched_count + 1, current_resource.upper()
                 )
-        # =======================================================================
 
         try:
             result = _dispatch_to_handler(
                 device, screen, state, stuck_count,
             )
         except Exception:
-            log.exception("Handler crash -> kiểm tra trạng thái trước khi bấm BACK")
-            # B4: Chỉ BACK khi _back_safe=True (đã từng xác nhận WORLD và không trong giai đoạn
-            # chuyển tài khoản). Tuyệt đối không BACK khi mới mở bot hoặc sau switch acc.
-            if _back_safe:
+            log.exception("Handler crash")
+            if time.monotonic() >= device._back_locked_until:
+                log.info("Handler crash -> bấm BACK để thoát trạng thái lỗi")
                 try:
                     device.key("BACK")
                 except Exception:
                     pass
             else:
-                log.warning("Bỏ qua BACK khẩn cấp — đang trong giai đoạn khởi động/chuyển acc (_back_safe=False)")
+                remaining = device._back_locked_until - time.monotonic()
+                log.warning("Handler crash -> BACK bị khoá còn %.0fs (sau bật game/chuyển acc)", remaining)
             time.sleep(2.0)
             continue
 
@@ -766,24 +887,21 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 last_state = None
                 stuck_count = 0
                 dispatched_count = 0
-                _back_safe = False   # chuyển acc → vào vùng cấm BACK
+                is_first_world_snapshot = True
                 reset_slider_state()
+                # Khoá BACK 2 phút sau khi chuyển acc
+                device._back_locked_until = time.monotonic() + 120.0
+                log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
 
                 # Đọc lại huy hiệu ban đầu cho tài khoản mới
-                try:
-                    init_screen = device.snapshot()
-                    ocr.clear_cache()
-                    n0, mx0 = read_slot_badge(init_screen)
-                    if mx0 is not None and mx0 > 0:
-                        config.MAX_SLOTS = mx0
-                    if n0 is not None:
-                        dispatched_count = n0
-                        log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                    else:
-                        log.warning("Không đọc được huy hiệu tài khoản mới -> coi như 0/%d", config.MAX_SLOTS)
-                        dispatched_count = 0
-                except Exception:
-                    log.exception("Đọc huy hiệu tài khoản mới thất bại")
+                n0, mx0 = _read_initial_slot_badge_with_retries(device)
+                if mx0 is not None and mx0 > 0:
+                    config.MAX_SLOTS = mx0
+                if n0 is not None:
+                    dispatched_count = n0
+                    log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+                else:
+                    log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
                     dispatched_count = 0
 
                 if dispatched_count >= config.MAX_SLOTS:
@@ -792,8 +910,9 @@ def run(device: Device, max_iterations: int | None = None) -> None:
                 continue
 
             _go_home_then_world(device)
-            log.info("Nghỉ ngắn 1-2s trước chu kỳ thu thập tiếp theo")
-            pause(1, 2)
+            wait_sec = random.randint(config.DELAY_AFTER_DISPATCH_MIN, config.DELAY_AFTER_DISPATCH_MAX)
+            log.info("Sau khi gửi quân, chờ %d giây trước chu kỳ tiếp theo...", wait_sec)
+            time.sleep(float(wait_sec))
             last_state = None
             stuck_count = 0
             continue
@@ -811,24 +930,21 @@ def run(device: Device, max_iterations: int | None = None) -> None:
             last_state = None
             stuck_count = 0
             dispatched_count = 0
-            _back_safe = False   # chuyển acc → vào vùng cấm BACK
+            is_first_world_snapshot = True
             reset_slider_state()
+            # Khoá BACK 2 phút sau khi chuyển acc
+            device._back_locked_until = time.monotonic() + 120.0
+            log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
 
             # Đọc lại huy hiệu ban đầu cho tài khoản mới
-            try:
-                init_screen = device.snapshot()
-                ocr.clear_cache()
-                n0, mx0 = read_slot_badge(init_screen)
-                if mx0 is not None and mx0 > 0:
-                    config.MAX_SLOTS = mx0
-                if n0 is not None:
-                    dispatched_count = n0
-                    log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                else:
-                    log.warning("Không đọc được huy hiệu tài khoản mới -> coi như 0/%d", config.MAX_SLOTS)
-                    dispatched_count = 0
-            except Exception:
-                log.exception("Đọc huy hiệu tài khoản mới thất bại")
+            n0, mx0 = _read_initial_slot_badge_with_retries(device)
+            if mx0 is not None and mx0 > 0:
+                config.MAX_SLOTS = mx0
+            if n0 is not None:
+                dispatched_count = n0
+                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+            else:
+                log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
                 dispatched_count = 0
 
             if dispatched_count >= config.MAX_SLOTS:
@@ -838,10 +954,6 @@ def run(device: Device, max_iterations: int | None = None) -> None:
 
         pause(result.sleep_after, result.sleep_after + 0.5)
 
-    # Best-effort: leave the game on WORLD so a subsequent restart
-    # doesn't begin stuck inside a popup/panel.
-    _return_to_world(device, max_attempts=6)
-    _cleanup_captures()
     log.info(
         "Bot dừng. Tổng số lượt đã gửi quân: %d", dispatched_count,
     )

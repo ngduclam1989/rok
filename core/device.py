@@ -234,10 +234,17 @@ class Device:
         if coords:
             pc_x, pc_y = coords
             log.debug("[%s] physical click (%d, %d)", self.serial, pc_x, pc_y)
-            win32api.SetCursorPos((pc_x, pc_y))
+            
+            from core.bot.input_lock import set_lock_position, reset_lock_position
+            set_lock_position(pc_x, pc_y)
+            time.sleep(0.05)  # Chờ chuột di chuyển tới vị trí khóa ổn định
+            
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
             time.sleep(0.05)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x, pc_y, 0, 0)
+            time.sleep(0.05)  # Chờ Windows nhận sự kiện nhấc chuột trước khi nhả khóa
+            
+            reset_lock_position()
 
     def _physical_long_click(self, game_x: int, game_y: int, duration_ms: int) -> None:
         import win32gui
@@ -254,10 +261,17 @@ class Device:
         if coords:
             pc_x, pc_y = coords
             log.debug("[%s] physical long click (%d, %d) %dms", self.serial, pc_x, pc_y, duration_ms)
-            win32api.SetCursorPos((pc_x, pc_y))
+            
+            from core.bot.input_lock import set_lock_position, reset_lock_position
+            set_lock_position(pc_x, pc_y)
+            time.sleep(0.05)
+            
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
             time.sleep(duration_ms / 1000.0)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x, pc_y, 0, 0)
+            time.sleep(0.05)
+            
+            reset_lock_position()
 
     def _physical_swipe(self, game_x1: int, game_y1: int, game_x2: int, game_y2: int, duration_ms: int) -> None:
         import win32gui
@@ -277,24 +291,32 @@ class Device:
             pc_x2, pc_y2 = coords2
             log.debug("[%s] physical swipe (%d, %d) -> (%d, %d)", self.serial, pc_x1, pc_y1, pc_x2, pc_y2)
             
-            # Đặt chuột vào vị trí bắt đầu và nhấn
-            win32api.SetCursorPos((pc_x1, pc_y1))
+            from core.bot.input_lock import set_lock_position, reset_lock_position
+            
+            # Đặt chuột vào vị trí bắt đầu và giữ khóa ở đó
+            set_lock_position(pc_x1, pc_y1)
+            time.sleep(0.05)
+            
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x1, pc_y1, 0, 0)
             time.sleep(0.05)
             
-            # Chia làm các bước trượt cho mượt
+            # Chia làm các bước trượt cho mượt, cập nhật lock position liên tục để khóa cứng vị trí
             steps = max(1, int(duration_ms / 10))
             for i in range(1, steps + 1):
                 t = i / steps
                 curr_x = int(pc_x1 + (pc_x2 - pc_x1) * t)
                 curr_y = int(pc_y1 + (pc_y2 - pc_y1) * t)
-                win32api.SetCursorPos((curr_x, curr_y))
+                set_lock_position(curr_x, curr_y)
                 time.sleep(0.01)
                 
             # Thả chuột ở vị trí đích
-            win32api.SetCursorPos((pc_x2, pc_y2))
+            set_lock_position(pc_x2, pc_y2)
+            time.sleep(0.05)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
+            time.sleep(0.05)
+            
+            reset_lock_position()
 
     def tap(self, x: int, y: int) -> None:
         log.debug("[%s] tap (%d,%d)", self.serial, x, y)
@@ -341,6 +363,12 @@ class Device:
             )
 
     def key(self, name: str) -> None:
+        if name.upper() == "BACK":
+            locked_until = getattr(self, "_back_locked_until", 0.0)
+            if time.monotonic() < locked_until:
+                remaining = locked_until - time.monotonic()
+                log.warning("[%s] Nút BACK bị chặn do đang trong thời gian khoá (còn %.0fs)", self.serial, remaining)
+                return
         log.debug("[%s] key %s", self.serial, name)
         self._adb_shell("input", "keyevent", name.upper())
 

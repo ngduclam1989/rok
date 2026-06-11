@@ -89,7 +89,19 @@ def _toggle_pause() -> None:
         )
         print(banner, flush=True)
         log.warning("[PAUSE] Người dùng nhấn Ctrl+Space → TẠM DỪNG.")
+        # Mở khoá chuột ngay lập tức khi tạm dừng để dùng bình thường
+        try:
+            from core.bot.input_lock import unlock_input
+            unlock_input()
+        except Exception:
+            pass
     else:
+        # Khoá lại chuột ngay lập tức khi resume trước khi luồng chính tiếp tục
+        try:
+            from core.bot.input_lock import lock_input
+            lock_input()
+        except Exception:
+            pass
         _pause_event.set()
         banner = (
             "\n" + "=" * 60 + "\n"

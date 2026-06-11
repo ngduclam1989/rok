@@ -276,14 +276,23 @@ def load_global_settings(devices_file: Path) -> None:
             "delay_after_popup_max": "DELAY_AFTER_POPUP_MAX",
             "delay_after_dispatch_min": "DELAY_AFTER_DISPATCH_MIN",
             "delay_after_dispatch_max": "DELAY_AFTER_DISPATCH_MAX",
+            "enable_city_world_toggle": "ENABLE_CITY_WORLD_TOGGLE",
+            "city_world_toggle_probability": "CITY_WORLD_TOGGLE_PROBABILITY",
+            "enable_input_lock": "ENABLE_INPUT_LOCK",
         }
         
         for yaml_key, config_key in mapping.items():
             if yaml_key in settings:
                 val = settings[yaml_key]
                 try:
-                    setattr(config, config_key, int(val))
-                    log.info("[Config] Đã nạp %s = %d", config_key, int(val))
+                    if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "ENABLE_INPUT_LOCK"):
+                        parsed_val = bool(val)
+                    elif config_key == "CITY_WORLD_TOGGLE_PROBABILITY":
+                        parsed_val = float(val)
+                    else:
+                        parsed_val = int(val)
+                    setattr(config, config_key, parsed_val)
+                    log.info("[Config] Đã nạp %s = %s", config_key, str(parsed_val))
                 except (ValueError, TypeError):
                     pass
     except Exception as e:

@@ -235,8 +235,8 @@ class Device:
             pc_x, pc_y = coords
             log.debug("[%s] physical click (%d, %d)", self.serial, pc_x, pc_y)
             
-            from core.bot.input_lock import set_lock_position, reset_lock_position
-            set_lock_position(pc_x, pc_y)
+            from core.bot.input_lock import move_lock_position_smooth, reset_lock_position
+            move_lock_position_smooth(pc_x, pc_y, duration=0.15)
             time.sleep(0.05)  # Chờ chuột di chuyển tới vị trí khóa ổn định
             
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
@@ -262,8 +262,8 @@ class Device:
             pc_x, pc_y = coords
             log.debug("[%s] physical long click (%d, %d) %dms", self.serial, pc_x, pc_y, duration_ms)
             
-            from core.bot.input_lock import set_lock_position, reset_lock_position
-            set_lock_position(pc_x, pc_y)
+            from core.bot.input_lock import move_lock_position_smooth, reset_lock_position
+            move_lock_position_smooth(pc_x, pc_y, duration=0.15)
             time.sleep(0.05)
             
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x, pc_y, 0, 0)
@@ -291,10 +291,10 @@ class Device:
             pc_x2, pc_y2 = coords2
             log.debug("[%s] physical swipe (%d, %d) -> (%d, %d)", self.serial, pc_x1, pc_y1, pc_x2, pc_y2)
             
-            from core.bot.input_lock import set_lock_position, reset_lock_position
+            from core.bot.input_lock import move_lock_position_smooth, set_lock_position, reset_lock_position
             
-            # Đặt chuột vào vị trí bắt đầu và giữ khóa ở đó
-            set_lock_position(pc_x1, pc_y1)
+            # Di chuyển chuột mượt mà đến điểm bắt đầu swipe
+            move_lock_position_smooth(pc_x1, pc_y1, duration=0.15)
             time.sleep(0.05)
             
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x1, pc_y1, 0, 0)

@@ -66,6 +66,12 @@ def lock_input() -> None:
     Sử dụng BlockInput cho phần cứng, và luồng phụ + ClipCursor để giữ chuột.
     """
     global _LOCKED, _LOCK_COORD, _IDLE_COORD, _LOCK_THREAD
+    
+    from core.bot import config
+    if not getattr(config, "ENABLE_INPUT_LOCK", True):
+        log.info("[InputLock] Bỏ qua khoá chuột (đã tắt bằng enable_input_lock trong cấu hình).")
+        return
+        
     if _LOCKED:
         return
     
@@ -103,6 +109,11 @@ def lock_input() -> None:
 def unlock_input() -> None:
     """Mở khoá chuột người dùng."""
     global _LOCKED, _LOCK_COORD, _IDLE_COORD
+    
+    from core.bot import config
+    if not getattr(config, "ENABLE_INPUT_LOCK", True):
+        return
+        
     _LOCKED = False
     
     # BlockInput
@@ -138,14 +149,54 @@ def set_lock_position(x: int, y: int) -> None:
             pass
 
 
-def reset_lock_position() -> None:
+def move_lock_position_smooth(target_x: int, target_y: int, duration: float = 0.15) -> None:
+    """Di chuyển toạ độ giữ chuột mượt mà từ vị trí hiện tại đến đích để mô phỏng người dùng di chuột."""
+    global _LOCK_COORD
+    if not _LOCKED or _LOCK_COORD is None:
+        return
+        
+    start_x, start_y = _LOCK_COORD
+    if start_x == target_x and start_y == target_y:
+        return
+        
+    step_time = 0.01  # 10ms mỗi bước
+    steps = max(1, int(duration / step_time))
+    
+    for i in range(1, steps + 1):
+        t = i / steps
+        # Easing function: quadratic ease-out để di chuyển tự nhiên hơn
+        t_eased = 1.0 - (1.0 - t) * (1.0 - t)
+        curr_x = int(start_x + (target_x - start_x) * t_eased)
+        curr_y = int(start_y + (target_y - start_y) * t_eased)
+        
+        _LOCK_COORD = (curr_x, curr_y)
+        if win32api:
+            try:
+                win32api.SetCursorPos((curr_x, curr_y))
+            except Exception:
+                pass
+        time.sleep(step_time)
+        
+    # Đảm bảo chính xác ở tọa độ đích cuối cùng
+    _LOCK_COORD = (target_x, target_y)
+    if win32api:
+        try:
+            win32api.SetCursorPos((target_x, target_y))
+        except Exception:
+            pass
+
+
+def reset_lock_position(smooth: bool = True) -> None:
     """Đưa toạ độ giữ chuột về lại vị trí nghỉ ban đầu."""
     global _LOCK_COORD
     if not _LOCKED or _IDLE_COORD is None:
         return
-    _LOCK_COORD = _IDLE_COORD
-    if win32api:
-        try:
-            win32api.SetCursorPos(_IDLE_COORD)
-        except Exception:
-            pass
+    if smooth:
+        move_lock_position_smooth(_IDLE_COORD[0], _IDLE_COORD[1], duration=0.15)
+    else:
+        _LOCK_COORD = _IDLE_COORD
+        if win32api:
+            try:
+                win32api.SetCursorPos(_IDLE_COORD)
+            except Exception:
+                pass

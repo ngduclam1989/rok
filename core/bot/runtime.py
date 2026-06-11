@@ -909,7 +909,18 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                     return
                 continue
 
-            _go_home_then_world(device)
+            # Cơ chế vào city rồi lại về world (tránh bám đuôi camera)
+            enable_toggle = getattr(config, "ENABLE_CITY_WORLD_TOGGLE", True)
+            prob = getattr(config, "CITY_WORLD_TOGGLE_PROBABILITY", 0.5)
+            if enable_toggle:
+                rand_val = random.random()
+                if rand_val < prob:
+                    log.info("Cơ chế City-World được kích hoạt ngẫu nhiên (%.2f < %.2f)", rand_val, prob)
+                    _go_home_then_world(device)
+                else:
+                    log.info("Bỏ qua cơ chế City-World lần này (%.2f >= %.2f)", rand_val, prob)
+            else:
+                log.info("Cơ chế City-World đã bị tắt trong cấu hình.")
             wait_sec = random.randint(config.DELAY_AFTER_DISPATCH_MIN, config.DELAY_AFTER_DISPATCH_MAX)
             log.info("Sau khi gửi quân, chờ %d giây trước chu kỳ tiếp theo...", wait_sec)
             time.sleep(float(wait_sec))

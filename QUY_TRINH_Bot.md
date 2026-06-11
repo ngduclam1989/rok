@@ -41,6 +41,13 @@ Tài liệu này mô tả chi tiết các bước xử lý từ **B0 đến B6**
   - Quãng đường từ vị trí hiện tại đến vị trí click/swipe được chia nhỏ thành nhiều bước cách nhau 10ms, trượt mượt mà trong thời gian 150ms.
   - Sau khi click hoặc vuốt xong, chuột cũng di chuyển mượt mà quay trở lại vị trí nghỉ ban đầu (`_IDLE_COORD`).
 
+### 🔹 Tọa độ bấm Gaussian (Gaussian Click Coordinates)
+
+- **Vị trí:** [mouse.py](file:///e:/bot%20rok/automation-farm-rise-of-kingdom/core/mouse.py) — `get_gaussian_click_coords()` · [device.py](file:///e:/bot%20rok/automation-farm-rise-of-kingdom/core/device.py) — `tap()`, `long_tap()`.
+- Trước khi thực hiện thao tác bấm, bot không dùng nguyên tọa độ tâm tuyệt đối mà lấy mẫu tọa độ mới quanh điểm gốc bằng phân phối chuẩn Gaussian.
+- Mặc định `sigma=5`: phần lớn lượt bấm nằm rất gần tọa độ gốc, các điểm lệch xa hơn xuất hiện thưa dần theo dạng bell curve.
+- Cơ chế này chỉ thay đổi **tọa độ được bấm** cho `tap()` và `long_tap()`. Nó không thay đổi thuật toán di chuyển chuột mượt, và không áp dụng cho `swipe()`.
+
 ### 🔹 B2 — Thời gian chờ khởi động game
 
 - **Vị trí:** `_run_body()` tại [runtime.py L416–L468](file:///e:/bot%20rok/automation-farm-rise-of-kingdom/core/bot/runtime.py#L416-L468) và `_initial_navigate_to_world()` tại [runtime.py L113–L204](file:///e:/bot%20rok/automation-farm-rise-of-kingdom/core/bot/runtime.py#L113-L204).

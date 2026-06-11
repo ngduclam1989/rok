@@ -291,52 +291,66 @@ class Device:
             pc_x2, pc_y2 = coords2
             log.debug("[%s] physical swipe (%d, %d) -> (%d, %d)", self.serial, pc_x1, pc_y1, pc_x2, pc_y2)
             
-            from core.bot.input_lock import move_lock_position_smooth, set_lock_position, reset_lock_position
+            from core.bot.input_lock import move_lock_position_smooth, reset_lock_position
             
-            # Di chuyển chuột mượt mà đến điểm bắt đầu swipe
+            # Move smoothly to the start, then drag along the Bezier path.
             move_lock_position_smooth(pc_x1, pc_y1, duration=0.15)
             time.sleep(0.05)
             
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, pc_x1, pc_y1, 0, 0)
             time.sleep(0.05)
             
-            # Chia làm các bước trượt cho mượt, cập nhật lock position liên tục để khóa cứng vị trí
-            steps = max(1, int(duration_ms / 10))
-            for i in range(1, steps + 1):
-                t = i / steps
-                curr_x = int(pc_x1 + (pc_x2 - pc_x1) * t)
-                curr_y = int(pc_y1 + (pc_y2 - pc_y1) * t)
-                set_lock_position(curr_x, curr_y)
-                time.sleep(0.01)
+            move_lock_position_smooth(
+                pc_x2,
+                pc_y2,
+                duration=max(0.05, duration_ms / 1000.0),
+            )
                 
-            # Thả chuột ở vị trí đích
-            set_lock_position(pc_x2, pc_y2)
             time.sleep(0.05)
-            win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
             win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, pc_x2, pc_y2, 0, 0)
             time.sleep(0.05)
             
             reset_lock_position()
 
+    def _resolve_press_coords(self, x: int, y: int) -> tuple[int, int]:
+        """Resolve the final coordinate to press before any ADB/mouse action."""
+        from core.mouse import get_gaussian_click_coords
+
+        press_x, press_y = get_gaussian_click_coords(x, y)
+        log.debug(
+            "[%s] press coords resolved: target=(%d,%d) gaussian=(%d,%d)",
+            self.serial,
+            x,
+            y,
+            press_x,
+            press_y,
+        )
+        return press_x, press_y
+
     def tap(self, x: int, y: int) -> None:
-        log.debug("[%s] tap (%d,%d)", self.serial, x, y)
+        press_x, press_y = self._resolve_press_coords(x, y)
         if self.control_mode == "physical_mouse" and self._hwnd:
-            self._physical_click(x, y)
+            self._physical_click(press_x, press_y)
         else:
-            self._adb_shell("input", "tap", str(int(x)), str(int(y)))
+            self._adb_shell("input", "tap", str(int(press_x)), str(int(press_y)))
 
     def long_tap(self, x: int, y: int, duration_ms: int = 150) -> None:
         """Long tap via zero-distance swipe."""
+        press_x, press_y = self._resolve_press_coords(x, y)
         log.debug(
-            "[%s] long_tap (%d,%d) %dms", self.serial, x, y, duration_ms
+            "[%s] long_tap press=(%d,%d) %dms",
+            self.serial,
+            press_x,
+            press_y,
+            duration_ms,
         )
         if self.control_mode == "physical_mouse" and self._hwnd:
-            self._physical_long_click(x, y, duration_ms)
+            self._physical_long_click(press_x, press_y, duration_ms)
         else:
             self._adb_shell(
                 "input", "swipe",
-                str(int(x)), str(int(y)),
-                str(int(x)), str(int(y)),
+                str(int(press_x)), str(int(press_y)),
+                str(int(press_x)), str(int(press_y)),
                 str(int(duration_ms)),
             )
 

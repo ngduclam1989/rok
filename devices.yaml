@@ -21,15 +21,23 @@ defaults:
   skip_level_adjust: false
   turn_wait_min: 60
   control_mode: adb        # adb (mặc định) hoặc physical_mouse (chiếm chuột thật PC)
-  enable_input_lock: true              # Bật/tắt chế độ khóa chuột/phím PC khi chạy bot (nếu dùng phone thật nên tắt đi)
+  enable_input_lock: false              # Bật/tắt chế độ khóa chuột/phím PC khi chạy bot (nếu dùng phone thật nên tắt đi)
+  save_drag_path_images: true          # Tự động chụp và vẽ đường đi của chuột (kéo/vuốt) khi chạy bot
+  enable_vip_claim: true               # Bật/tắt nhận VIP tự động xen kẽ khi chạy farm (chọn ngẫu nhiên thứ tự chạy trước/sau khi farm)
+  
+  # Cấu hình chu kỳ chờ chạy lại bot (B6):
+  cycle_wait_min: 120                  # Thời gian chờ cơ bản giữa các lượt chạy (phút)
+  cycle_wait_variance_min: 10          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
+
+
 
   # Cấu hình thời gian chờ:
   delay_after_popup_min: 5     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
   delay_after_popup_max: 15    # Thời gian chờ tối đa sau khi tắt popup (giây)
   delay_after_dispatch_min: 10 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
   delay_after_dispatch_max: 20 # Thời gian chờ tối đa sau khi gửi quân (giây)
-  enable_city_world_toggle: false       # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
-  city_world_toggle_probability: 0.5    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)
+  enable_city_world_toggle: true        # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
+  city_world_toggle_probability: 0.2    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)
 
 # Danh sách thiết bị.
 # Nếu bạn không điền gì ở đây (hoặc xóa/comment block này), bot sẽ tự động quét

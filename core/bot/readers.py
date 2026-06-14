@@ -18,7 +18,7 @@ from core.device import Device
 
 from . import config
 from .geometry import pct_to_px, region_pct_to_px
-from .signals import should_stop, sleep_with_stop_check_exact
+from .signals import should_stop, sleep_with_stop_check_exact, pause
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def read_march_panel_times(
         bx, by,
     )
     device.tap(bx, by)
-    time.sleep(2.5)
+    pause(2.5)
 
     all_seconds: set[int] = set()
     try:
@@ -170,7 +170,7 @@ def read_march_panel_times(
             scroll_from_x, scroll_from_y,
             scroll_from_x, scroll_to_y, 500,
         )
-        time.sleep(1.2)
+        pause(1.2)
         try:
             panel = device.snapshot()
         except Exception:
@@ -190,7 +190,7 @@ def read_march_panel_times(
         device.key("BACK")
     except Exception:
         pass
-    time.sleep(1.5)
+    pause(1.5)
 
     if not all_seconds:
         log.warning("Không đọc được thời gian thu thập từ bảng quân")

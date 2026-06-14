@@ -51,12 +51,13 @@ from .signals import (
 )
 from .state import S
 from .input_lock import lock_input, unlock_input
+from .capture import save_debug_image
 
 log = logging.getLogger(__name__)
 
 
 def _cleanup_captures() -> None:
-    """Delete successful PNG images in captures/, only keeping the FAILED, UNKNOWN, or FIRST_WORLD ones."""
+    """Xóa ảnh PNG thành công trong captures/, giữ lại FAILED/UNKNOWN/FIRST_WORLD."""
     try:
         if not CAPTURES_DIR.exists():
             return
@@ -64,35 +65,7 @@ def _cleanup_captures() -> None:
             if "FAILED" not in p.name and "UNKNOWN" not in p.name and "FIRST_WORLD" not in p.name:
                 p.unlink(missing_ok=True)
     except Exception as e:
-        log.warning("Lỗi dọn dẹp ảnh captures thành công: %s", e)
-
-
-def _save_unknown_screenshot(device: Device, screen: np.ndarray) -> None:
-    import cv2
-    try:
-        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-        serial_clean = str(device.serial).replace(":", "_").replace(".", "_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"UNKNOWN_{serial_clean}_{timestamp}.png"
-        filepath = CAPTURES_DIR / filename
-        cv2.imwrite(str(filepath), screen)
-        log.info("[B0] Đã lưu màn hình UNKNOWN: %s", filename)
-    except Exception as e:
-        log.warning("Không thể lưu màn hình UNKNOWN: %s", e)
-
-
-def _save_first_world_screenshot(device: Device, screen: np.ndarray) -> None:
-    import cv2
-    try:
-        CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-        serial_clean = str(device.serial).replace(":", "_").replace(".", "_")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"FIRST_WORLD_{serial_clean}_{timestamp}.png"
-        filepath = CAPTURES_DIR / filename
-        cv2.imwrite(str(filepath), screen)
-        log.info("[B0] Đã lưu màn hình WORLD đầu tiên của tài khoản/máy mới: %s", filename)
-    except Exception as e:
-        log.warning("Không thể lưu màn hình FIRST_WORLD: %s", e)
+        log.warning("Lỗi dọn dẹp ảnh captures: %s", e)
 
 
 def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4) -> tuple[int | None, int | None]:
@@ -108,8 +81,276 @@ def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4)
             log.warning("Thử đọc huy hiệu hàng đợi lần %d thất bại -> chờ 2s thử lại...", attempt + 1)
         except Exception as e:
             log.warning("Lỗi khi chụp/đọc huy hiệu lần %d: %s", attempt + 1, e)
-        time.sleep(2.0)
+        pause(2.0)
     return None, None
+
+
+def _claim_vip(device: Device) -> None:
+    log.info("=== Bắt đầu nhận điểm và rương VIP hàng ngày ===")
+    try:
+        # 1. Đảm bảo ở màn hình CITY
+        screen = device.snapshot()
+        state = detect_state(device, screen)
+        if state == S.WORLD:
+            log.info("Đang ở WORLD -> bấm nút chuyển sang CITY")
+            region_px = region_pct_to_px(screen, (0, 80, 15, 100))
+            pos = device.find_template_in("btn_map_toggle.png", screen, 0.75, region=region_px)
+            if pos is not None:
+                device.tap(*pos)
+            else:
+                h, w = screen.shape[:2]
+                device.tap(int(w * 0.06), int(h * 0.912))
+            pause(2.5)
+            screen = device.snapshot()
+            state = detect_state(device, screen)
+
+        if state != S.CITY:
+            log.warning("Không ở màn hình CITY (trạng thái: %s) -> đưa về world rồi sang city", state.value)
+            _return_to_world(device, max_attempts=4)
+            screen = device.snapshot()
+            region_px = region_pct_to_px(screen, (0, 80, 15, 100))
+            pos = device.find_template_in("btn_map_toggle.png", screen, 0.75, region=region_px)
+            if pos is not None:
+                device.tap(*pos)
+            else:
+                h, w = screen.shape[:2]
+                device.tap(int(w * 0.06), int(h * 0.912))
+            pause(2.5)
+
+        # 2. Click VIP với tọa độ ngẫu nhiên dựa trên vùng (151, 81) -> (236, 110)
+        vip_area = (151, 81, 236, 110)
+        center_x = (vip_area[0] + vip_area[2]) // 2
+        center_y = (vip_area[1] + vip_area[3]) // 2
+        vip_pos = (center_x + random.randint(-10, 10), center_y + random.randint(-10, 10))
+        
+        vip_point_chest = (1767 + random.randint(-10, 10), 268 + random.randint(-10, 10))
+        vip_free_chest = (1650 + random.randint(-10, 10), 540 + random.randint(-10, 10))
+
+        log.info("Mở giao diện VIP tại %s (vùng %s)", vip_pos, vip_area)
+        screen = device.snapshot()
+        if screen is not None:
+            save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
+                             clicks=[vip_pos], rects=[vip_area], label="Mo Giao Dien VIP")
+        device.tap(*vip_pos)
+        pause(2.0)
+
+        log.info("Nhận điểm VIP hàng ngày tại %s", vip_point_chest)
+        screen = device.snapshot()
+        if screen is not None:
+            save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
+                             clicks=[vip_point_chest], label="Nhan Diem VIP")
+        device.tap(*vip_point_chest)
+        pause(5.0)
+        device.tap(*vip_point_chest)
+        pause(1.0)
+
+        log.info("Nhận rương VIP miễn phí hàng ngày tại %s", vip_free_chest)
+        screen = device.snapshot()
+        if screen is not None:
+            save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
+                             clicks=[vip_free_chest], label="Nhan Ruong VIP Mien Phi")
+        device.tap(*vip_free_chest)
+        pause(1.0)
+
+        log.info("Thoát giao diện VIP về lại màn hình chính")
+        device.key("BACK")
+        pause(1.5)
+        log.info("=== Hoàn thành nhận VIP ===")
+    except Exception as e:
+        log.exception("Lỗi khi thực hiện nhận VIP: %s", e)
+
+
+_chores_first: bool = True
+
+
+def _run_vip_and_chores_now(device: Device) -> None:
+    # Game đã tải xong và ở WORLD, mở khoá nút BACK để sử dụng trong chores
+    device._back_locked_until = 0.0
+    
+    # Định nghĩa các hành động khởi tạo
+    from .chores import (
+        do_alliance_help,
+        do_alliance_gifts,
+        do_alliance_territory,
+        do_alliance_tech,
+    )
+    
+    # Bọc các hàm hành động để dễ gọi và xử lý ngoại lệ riêng biệt
+    def run_vip():
+        _claim_vip(device)
+        
+    def run_help():
+        do_alliance_help(device)
+        
+    def run_gifts():
+        do_alliance_gifts(device)
+        
+    def run_territory():
+        do_alliance_territory(device)
+        
+    def run_tech():
+        do_alliance_tech(device)
+        
+    # Danh sách các hành động cần thực hiện
+    actions = [
+        ("Nhận VIP", run_vip),
+        ("Trợ giúp liên minh", run_help),
+        ("Nhận quà liên minh", run_gifts),
+        ("Thu tài nguyên lãnh thổ", run_territory),
+        ("Đóng góp công nghệ liên minh", run_tech),
+    ]
+    
+    # Xáo trộn ngẫu nhiên thứ tự thực hiện hành động để giống người thật
+    random.shuffle(actions)
+    
+    log.info("=== Bắt đầu thực hiện các hành động khởi tạo (đã xáo trộn ngẫu nhiên) ===")
+    for name, action in actions:
+        log.info("-> Bắt đầu hành động: %s", name)
+        try:
+            action()
+        except Exception as e:
+            log.exception("Lỗi khi thực hiện hành động '%s': %s", name, e)
+        # Nghỉ ngơi ngắn ngẫu nhiên giữa các hành động lớn
+        pause(1.5, 3.0)
+        
+    log.info("=== Hoàn thành các hành động khởi tạo ===")
+    _initial_navigate_to_world(device)
+
+
+def _handle_logo_18_check(device: Device) -> None:
+    logo_region = (2159, 916, 2316, 1041)  # vùng quét tìm logo 18+
+    # Vùng click ngẫu nhiên khi phát hiện logo 18+
+    click_rect = (
+        min(1319, 1071),  # x_left  = 1071
+        min(1048, 849),   # y_top   = 849
+        max(1319, 1071),  # x_right = 1319
+        max(1048, 849),   # y_bot   = 1048
+    )  # -> (1071, 849, 1319, 1048)
+
+    log.info("Bắt đầu quy trình quét và click logo 18+ (tối đa 10 lần)...")
+    stable_world_count = 0  # Đếm số lần liên tiếp detect WORLD/CITY để tránh false-positive
+    for attempt in range(10):
+        if should_stop():
+            break
+
+        try:
+            screen = device.snapshot()
+            state = detect_state(device, screen)
+        except Exception as snap_err:
+            log.warning("Chụp màn hình/Nhận diện trạng thái khi quét logo 18+ thất bại: %s", snap_err)
+            stable_world_count = 0
+            pause(5.0)
+            continue
+
+        if state in (S.WORLD, S.CITY):
+            stable_world_count += 1
+            log.info(
+                "Phát hiện trạng thái %s (lần %d/2 liên tiếp) -> "
+                "%s",
+                state.value,
+                stable_world_count,
+                "Dừng quét logo 18+" if stable_world_count >= 2 else "Chờ xác nhận thêm lần nữa...",
+            )
+            if stable_world_count >= 2:
+                break
+            # Chờ 3s rồi check lại lần nữa để xác nhận game đã load thật sự
+            pause(3.0)
+            continue
+        else:
+            stable_world_count = 0
+
+        try:
+            match_pos = device.find_template_in("logo_18.png", screen, threshold=0.70, region=logo_region)
+        except Exception as err:
+            log.warning("Không thấy template logo_18.png hoặc lỗi: %s", err)
+            match_pos = None
+
+        if match_pos is not None:
+            tx = random.randint(click_rect[0], click_rect[2])
+            ty = random.randint(click_rect[1], click_rect[3])
+            log.info(
+                "Phát hiện logo 18+ (lần %d) tại %s -> click ngẫu nhiên tại (%d, %d) "
+                "trong vùng [(%d,%d)-(%d,%d)]",
+                attempt + 1, match_pos, tx, ty,
+                click_rect[0], click_rect[1], click_rect[2], click_rect[3],
+            )
+            save_debug_image(
+                screen, device.serial,
+                subdir="logo_18_clicks", prefix="logo_18",
+                clicks=[(tx, ty)],
+                rects=[logo_region, click_rect],
+                label=f"Logo18+ L{attempt+1}",
+            )
+            device.tap(tx, ty)
+        else:
+            log.info("Không phát hiện logo 18+ trong vùng coords='2159,916,2316,1041' (lần %d)", attempt + 1)
+
+        pause(5.0)
+
+
+def _prepare_world_only(device: Device) -> None:
+    """Đảm bảo màn hình đang ở WORLD hoặc CITY trước khi chạy workflow.
+
+    Gọi _initial_navigate_to_world trước, sau đó kiểm tra trạng thái thực tế.
+    Nếu vẫn còn popup/panel thì xử lý tiếp cho đến khi vào được WORLD/CITY
+    hoặc hết tối đa 30s.
+    """
+    _initial_navigate_to_world(device)
+
+    # Kiểm tra lại: nếu vẫn chưa ở WORLD/CITY thì xử lý tiếp
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        try:
+            screen = device.snapshot()
+        except Exception:
+            break
+        ocr.clear_cache()
+        try:
+            state = detect_state(device, screen)
+        except Exception:
+            state = S.UNKNOWN
+
+        if state in (S.WORLD, S.CITY):
+            log.info("_prepare_world_only: xác nhận đang ở %s, sẵn sàng chạy workflow.", state.value)
+            return
+
+        log.info(
+            "_prepare_world_only: màn hình đang ở %s (chưa phải WORLD/CITY), "
+            "tiếp tục xử lý...",
+            state.value,
+        )
+
+        # Xử lý theo state
+        if state == S.CITY:
+            # Đã ở city -> ok
+            return
+        elif state == S.POPUP:
+            handle_popup(device, screen)
+        elif state == S.BUILD_MENU:
+            handle_build_menu(device, screen)
+        elif state == S.EXIT_DIALOG:
+            handle_exit_dialog(device, screen)
+        elif state == S.GEMS_SHOP:
+            handle_gems_shop(device, screen)
+        elif state == S.SEARCH_PANEL:
+            handle_search_panel(device, screen)
+        elif state == S.TILE_INFO:
+            handle_tile_info(device, screen)
+        elif state == S.MARCH_PLAN:
+            handle_march_plan(device, screen)
+        elif state == S.NETWORK_ERROR:
+            handle_network_error(device, screen)
+            pause(20.0)
+        elif state == S.LOCK_SCREEN:
+            handle_lock_screen(device, screen)
+            pause(2.5)
+        else:
+            # UNKNOWN hoặc state khác -> gửi phím BACK nhẹ
+            device.key("BACK")
+            pause(2.0)
+        pause(1.5)
+
+    log.warning("_prepare_world_only: hết 30s vẫn chưa vào WORLD/CITY -> main loop sẽ xử lý tiếp.")
 
 
 def _initial_navigate_to_world(device: Device) -> None:
@@ -149,13 +390,13 @@ def _initial_navigate_to_world(device: Device) -> None:
         if state == S.NETWORK_ERROR:
             log.warning("Popup mạng ngay từ đầu -> xử lý + chờ 20s")
             handle_network_error(device, screen)
-            time.sleep(20.0)
+            pause(20.0)
             continue
 
         if state == S.LOCK_SCREEN:
             log.info("Game đang khoá -> mở khoá")
             handle_lock_screen(device, screen)
-            time.sleep(2.5)
+            pause(2.5)
             continue
 
         if state == S.CITY:
@@ -167,7 +408,7 @@ def _initial_navigate_to_world(device: Device) -> None:
             if pos is None:
                 x, y = pct_to_px(screen, 6.0, 91.2)
                 device.tap(x, y)
-            time.sleep(2.5)
+            pause(2.5)
             continue
 
         # Mọi state khác mà MAIN LOOP đã biết cách xử lý
@@ -189,16 +430,18 @@ def _initial_navigate_to_world(device: Device) -> None:
         if not device.is_game_running():
             log.warning("Đang ở %s và phát hiện game không chạy/crash -> Khởi chạy lại game com.rok.gp.vn...", state.value)
             device.start_game()
-            device._back_locked_until = time.monotonic() + 120.0
-            log.info("Khoá nút BACK trong 2 phút sau khi khởi chạy lại game.")
-            time.sleep(25.0)  # B2: chờ 25s khi mở game mới
+            device._back_locked_until = 0.0
+            log.info("Chờ 10s sau khi mở gói com.rok.gp.vn...")
+            pause(10.0)
+            _handle_logo_18_check(device)
         else:
             log.info("Đang ở %s nhưng game vẫn đang chạy. Mang game lên trước (bring to front) và chờ 5s...", state.value)
             try:
                 device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
             except Exception:
                 pass
-            time.sleep(5.0)
+            device._back_locked_until = 0.0
+            pause(5.0)
 
     log.warning(
         "Sau 5 lần thử vẫn chưa ở WORLD -> vào loop, "
@@ -240,7 +483,7 @@ def _go_home_then_world(device: Device) -> None:
             device.tap(int(w * 0.06), int(h * 0.912))
 
     _tap_map_toggle(screen)
-    time.sleep(2.5)
+    pause(2.5)
 
     try:
         screen = device.snapshot()
@@ -249,7 +492,7 @@ def _go_home_then_world(device: Device) -> None:
         return
     ocr.clear_cache()
     _tap_map_toggle(screen)
-    time.sleep(2.5)
+    pause(2.5)
 
     try:
         screen = device.snapshot()
@@ -304,12 +547,12 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
         else:
             x, y = pct_to_px(screen, 97.0, 5.0)
             device.tap(x, y)
-            time.sleep(0.5)
+            pause(0.5)
             try:
                 device.key("BACK")
             except Exception:
                 pass
-        time.sleep(1.5)
+        pause(1.5)
     log.warning(
         "Không đưa về được world sau %d lần thử -> bỏ qua",
         max_attempts,
@@ -317,23 +560,27 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
 
 
 def _handle_queue_full(device: Device, switched_account: bool) -> bool:
-    """Xử lý khi hàng chờ đầy: đổi acc hoặc tắt giả lập nếu cả 2 acc đều đầy.
+    """Xử lý khi tài khoản hoàn thành mọi chu trình: chuyển acc hoặc tắt giả lập.
 
     Trả về True nếu đổi acc thành công để tiếp tục chạy, False nếu dừng bot và tắt giả lập.
     """
-    log.info("=== Hàng chờ của tài khoản hiện tại đã đầy (%d/%d)! ===", config.MAX_SLOTS, config.MAX_SLOTS)
+    log.info("=== Đã hoàn thành mọi chu trình của tài khoản hiện tại! ===")
     _return_to_world(device, max_attempts=4)
     _cleanup_captures()
 
     if switched_account:
-        log.info("=== Cả 2 tài khoản đều đã đầy hàng chờ/hoàn thành! Đang dừng bot... ===")
+        log.info("=== Cả 2 tài khoản đều đã hoàn thành mọi chu trình! Đang dừng bot... ===")
         return False
 
     log.info("=== Tiến hành chuyển sang tài khoản thứ 2... ===")
     success = handle_switch_account(device)
     if success:
-        log.info("Chuyển tài khoản thành công! Đợi 10s cho game load tài khoản mới...")
-        time.sleep(10.0)
+        log.info("Chuyển tài khoản thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
+        pause(5.0)
+        _handle_logo_18_check(device)
+        # Sau khi 18+ check xong, nếu vẫn chưa đủ 15s thì chờ thêm cho game ổn định
+        log.info("Chờ thêm 10s cho game load tài khoản mới hoàn tất...")
+        pause(10.0)
         config.CYCLE_RESOURCES = None
         return True
     else:
@@ -369,7 +616,41 @@ def _dispatch_to_handler(
     return handle_unknown(device, screen, stuck_count)
 
 
+def _reload_config_from_file(device_serial: str) -> None:
+    """Tải lại cấu hình từ file devices.yaml động mà không ảnh hưởng tới trạng thái chạy hiện tại của bot."""
+    try:
+        from core.config_io import load_bot_fleet_config, load_global_settings
+        from .constants import ROOT
+        from . import config
 
+        devices_file = ROOT / "devices.yaml"
+        if not devices_file.exists():
+            return
+
+        # 1. Load global settings đầu tiên
+        load_global_settings(devices_file)
+
+        # 2. Load cấu hình cụ thể của thiết bị này nếu có
+        fleet_cfg = load_bot_fleet_config(devices_file)
+        dev_cfg = next((c for c in fleet_cfg if c.serial == device_serial), None)
+        if dev_cfg:
+            config.TARGET_LEVEL = dev_cfg.target_level
+            
+            res_map = {"ngo": "corn", "food": "corn", "crop": "corn"}
+            res = res_map.get(dev_cfg.resource, dev_cfg.resource)
+            config.RESOURCE_TAB = res
+            
+            config.SKIP_LEVEL_ADJUST = dev_cfg.skip_level_adjust
+            config.TURN_WAIT_SEC = dev_cfg.turn_wait_min * 60
+            config.MAX_SLOTS = dev_cfg.max_slots
+            
+            log.info(
+                "[ReloadConfig] Đã tải lại devices.yaml thành công cho %s: "
+                "resource=%s, target_level=%d, max_slots=%d, turn_wait_min=%d",
+                device_serial, config.RESOURCE_TAB, config.TARGET_LEVEL, config.MAX_SLOTS, dev_cfg.turn_wait_min
+            )
+    except Exception as e:
+        log.warning("[ReloadConfig] Lỗi khi tự động tải lại devices.yaml: %s", e)
 
 
 def run(device: Device, max_iterations: int | None = None) -> None:
@@ -413,9 +694,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     device._back_locked_until = 0.0
     config.CYCLE_RESOURCES = None
 
-    # B2: kiểm tra xem Bluestacks có bật không, sau đó kiểm tra xem game có bật không
-    log.info("B2: Kiểm tra trạng thái của giả lập và game...")
-    
+    # B0: đứng im 10s để check thông tin device, app, màn hình
+    log.info("B0: Đứng im 10s để check thông tin thiết bị, ứng dụng và màn hình...")
+    pause(10.0)
+
     # 1. Kiểm tra trạng thái Bluestacks (nếu thuộc cấu hình Bluestacks)
     from core.bot.bluestack import start_bluestack, is_port_open, get_instance_name_by_port
     s = str(device.serial).strip()
@@ -429,13 +711,13 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
         pass
 
     if is_bluestacks:
-        log.info("B2: Phát hiện thiết bị Bluestacks. Kiểm tra xem giả lập có đang bật không...")
+        log.info("B0: Phát hiện thiết bị Bluestacks. Kiểm tra xem giả lập có đang bật không...")
         try:
             if not is_port_open(port):
                 log.warning("Bluestacks chưa bật hoặc đã bị đóng. Tiến hành bật Bluestacks...")
                 if start_bluestack(device.serial):
                     log.info("Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...")
-                    time.sleep(10.0)
+                    pause(10.0)
                 else:
                     log.error("Không thể khởi động hoặc kết nối Bluestacks cho %s", device.serial)
             else:
@@ -446,39 +728,54 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     # 2. Kiểm tra xem game có bật không
     try:
         if not device.is_game_running():
-            log.warning("Game chưa chạy hoặc đã bị đóng. Tiến hành khởi động lại game...")
+            log.warning("Game chưa chạy hoặc đã bị đóng. Tiến hành khởi động lại game com.rok.gp.vn...")
             device.start_game()
-            log.info("B2: Đang chờ 25s cho game tải xong...")
-            time.sleep(25.0)  # B2: chờ 25s khi khởi động game mới
+            device._back_locked_until = 0.0
+            
+            log.info("Đang chờ 10s sau khi kích hoạt mở gói com.rok.gp.vn...")
+            pause(10.0)
+
+            # Quy trình quét logo 18+ coords="2159,916,2316,1041"
+            _handle_logo_18_check(device)
         else:
             log.info("Game đang chạy sẵn. Đưa ứng dụng lên tiền cảnh...")
             device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
+            device._back_locked_until = 0.0
             log.info("Đang chờ 5s cho giao diện game hiển thị ổn định...")
-            time.sleep(5.0)
+            pause(5.0)
+            # Kiểm tra logo 18+ dù game đang chạy (có thể vẫn cần ấn xác nhận)
+            _handle_logo_18_check(device)
     except Exception as e:
         log.error("Lỗi khi kiểm tra/khởi chạy game: %s. Thử khởi chạy trực tiếp...", e)
         try:
             device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
-            time.sleep(10.0)
+            device._back_locked_until = 0.0
+            pause(10.0)
         except Exception:
             pass
 
-    # B2: Khoá BACK 2 phút sau khi bật game (tránh BACK khi game chưa ổn định)
-    device._back_locked_until = time.monotonic() + 120.0
-    log.info("B2: Khoá nút BACK trong 2 phút kể từ bây giờ.")
+    # Nếu bật chỉ chạy nhận VIP (ONLY_CLAIM_VIP) -> chỉ chạy VIP rồi thoát
+    if getattr(config, "ONLY_CLAIM_VIP", False):
+        log.info("=== Chế độ CHỈ NHẬN VIP (ONLY_CLAIM_VIP) được kích hoạt ===")
+        _initial_navigate_to_world(device)
+        device._back_locked_until = 0.0
+        _claim_vip(device)
+        _initial_navigate_to_world(device)
+        log.info("=== Hoàn thành nhận VIP. Kết thúc chương trình. ===")
+        return
 
-    # B3: tap giữa (1200, 540) bỏ qua pop-up, chờ 5-15s
-    log.info("B3: Tap (1200, 540) để bỏ qua pop-up...")
-    try:
-        device.tap(1200, 540)
-    except Exception as e:
-        log.warning("B3: Tap (1200, 540) thất bại: %s", e)
-    wait_b3 = random.randint(config.DELAY_AFTER_POPUP_MIN, config.DELAY_AFTER_POPUP_MAX)
-    log.info("B3: Chờ %ds trước khi đưa game về WORLD...", wait_b3)
-    time.sleep(float(wait_b3))
+    # Xác định màn hình và chuẩn hoá về WORLD trước khi chạy
+    _prepare_world_only(device)
 
-    # Normalise to WORLD before entering the main loop.
-    _initial_navigate_to_world(device)
+    # B1: sau khi vào được city hoặc world, chờ 3>8s
+    wait_b1 = random.uniform(3.0, 8.0)
+    log.info("B1: Đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...", wait_b1)
+    pause(wait_b1)
+
+    # Khởi tạo danh sách chu trình ngẫu nhiên cho tài khoản đầu tiên
+    remaining_workflows = ["vip", "alliance", "farm"]
+    random.shuffle(remaining_workflows)
+    log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản này: %s ===", remaining_workflows)
 
     last_state: S | None = None
     stuck_count = 0
@@ -513,46 +810,102 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
         )
         dispatched_count = 0
 
-    # Nếu hàng chờ đã đầy từ đầu:
-    if dispatched_count >= config.MAX_SLOTS and not should_stop():
-        success = _handle_queue_full(device, switched_account)
-        if not success:
-            return
-
-        switched_account = True
-        log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
-        _initial_navigate_to_world(device)
-
-        # Reset trạng thái
-        last_state = None
-        stuck_count = 0
-        dispatched_count = 0
-        is_first_world_snapshot = True
-        reset_slider_state()
-        # Khoá BACK 2 phút sau khi chuyển acc
-        device._back_locked_until = time.monotonic() + 120.0
-        log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
-
-        # Đọc lại huy hiệu ban đầu cho tài khoản mới
-        n0, mx0 = _read_initial_slot_badge_with_retries(device)
-        if mx0 is not None and mx0 > 0:
-            config.MAX_SLOTS = mx0
-        if n0 is not None:
-            dispatched_count = n0
-            log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-        else:
-            log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
-            dispatched_count = 0
-
-        if dispatched_count >= config.MAX_SLOTS:
-            _handle_queue_full(device, switched_account)
-            return
+    last_reload_time = time.monotonic()
 
     while not should_stop():
         # Kiểm tra và chờ nếu bot đang paused (Ctrl+Space)
         wait_if_paused()
         if should_stop():
             break
+
+        # Nếu đã hoàn thành mọi chu trình cho tài khoản hiện tại:
+        if not remaining_workflows:
+            success = _handle_queue_full(device, switched_account)
+            if not success:
+                break
+
+            switched_account = True
+            log.info("Bắt đầu lại quy trình với tài khoản mới...")
+            _prepare_world_only(device)
+
+            # B1: sau khi vào được city hoặc world, chờ 3>8s
+            wait_b1 = random.uniform(3.0, 8.0)
+            log.info("B1: Tài khoản mới đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...", wait_b1)
+            pause(wait_b1)
+
+            # Khởi tạo lại chu trình cho tài khoản mới
+            remaining_workflows = ["vip", "alliance", "farm"]
+            random.shuffle(remaining_workflows)
+            log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản mới: %s ===", remaining_workflows)
+
+            # Reset các trạng thái của acc mới
+            last_state = None
+            stuck_count = 0
+            dispatched_count = 0
+            is_first_world_snapshot = True
+            reset_slider_state()
+            device._back_locked_until = 0.0
+            log.info("Bỏ khoá nút BACK đối với tài khoản mới.")
+
+            # Đọc lại huy hiệu ban đầu cho tài khoản mới
+            n0, mx0 = _read_initial_slot_badge_with_retries(device)
+            if mx0 is not None and mx0 > 0:
+                config.MAX_SLOTS = mx0
+            if n0 is not None:
+                dispatched_count = n0
+                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+            else:
+                log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
+                dispatched_count = 0
+            continue
+
+        # Lấy chu trình đang chờ chạy đầu tiên
+        current_wf = remaining_workflows[0]
+        if current_wf == "vip":
+            log.info(">>> Thực hiện chu trình: NHẬN VIP <<<")
+            if getattr(config, "ENABLE_VIP_CLAIM", False):
+                _claim_vip(device)
+            else:
+                log.info("Nhận VIP tự động bị tắt trong cấu hình.")
+            _prepare_world_only(device)
+            remaining_workflows.pop(0)
+            continue
+
+        elif current_wf == "alliance":
+            log.info(">>> Thực hiện chu trình: HOẠT ĐỘNG LIÊN MINH <<<")
+            _prepare_world_only(device)
+            from .chores import do_alliance_help, do_alliance_gifts, do_alliance_territory, do_alliance_tech
+            try:
+                do_alliance_help(device)
+            except Exception as e:
+                log.warning("Lỗi trợ giúp liên minh: %s", e)
+            try:
+                do_alliance_gifts(device)
+            except Exception as e:
+                log.warning("Lỗi nhận quà liên minh: %s", e)
+            try:
+                do_alliance_territory(device)
+            except Exception as e:
+                log.warning("Lỗi thu tài nguyên lãnh thổ: %s", e)
+            try:
+                do_alliance_tech(device)
+            except Exception as e:
+                log.warning("Lỗi đóng góp công nghệ: %s", e)
+            _prepare_world_only(device)
+            remaining_workflows.pop(0)
+            continue
+
+        elif current_wf == "farm":
+            # Nếu hàng chờ đã đầy từ trước:
+            if dispatched_count >= config.MAX_SLOTS:
+                log.info("Hàng chờ đã đầy (%d/%d). Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
+                remaining_workflows.pop(0)
+                continue
+
+        # Tự động nạp lại devices.yaml mỗi 3 phút (180 giây)
+        if time.monotonic() - last_reload_time >= 180.0:
+            _reload_config_from_file(device.serial)
+            last_reload_time = time.monotonic()
 
         iteration += 1
         if max_iterations and iteration > max_iterations:
@@ -591,7 +944,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                     if not is_port_open(port):
                         log.warning("Giả lập Bluestacks của %s đã bị tắt/crash. Tiến hành khởi động lại giả lập...", device.serial)
                         start_bluestack(device.serial)
-                        time.sleep(10.0)
+                        pause(10.0)
                 except Exception as bs_err:
                     log.error("Lỗi khi tự động khởi động lại Bluestacks: %s", bs_err)
 
@@ -610,19 +963,21 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 if not device.is_game_running():
                     log.warning("Game không chạy sau khi khôi phục kết nối -> Đang khởi chạy lại...")
                     device.start_game()
-                    device._back_locked_until = time.monotonic() + 120.0
-                    log.info("Khoá nút BACK trong 2 phút sau khi khởi chạy lại game.")
-                    time.sleep(15.0)
+                    device._back_locked_until = 0.0
+                    log.info("Chờ 10s sau khi mở gói com.rok.gp.vn...")
+                    pause(10.0)
+                    _handle_logo_18_check(device)
                 else:
                     log.info("Game vẫn đang chạy sau khi khôi phục kết nối. Đưa game lên trước...")
                     try:
                         device._adb_shell("monkey", "-p", "com.rok.gp.vn", "-c", "android.intent.category.LAUNCHER", "1")
                     except Exception:
                         pass
-                    time.sleep(5.0)
+                    device._back_locked_until = 0.0
+                    pause(5.0)
             except Exception as re_err:
                 log.error("Tự động khôi phục kết nối thất bại: %s. Thử lại sau 5s...", re_err)
-                time.sleep(5.0)
+                pause(5.0)
             continue
         t_snap = time.monotonic() - t0
         ocr.clear_cache()
@@ -649,10 +1004,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             last_state = state
 
         if state == S.UNKNOWN and stuck_count == 1:
-            _save_unknown_screenshot(device, screen)
+            save_debug_image(screen, device.serial, prefix="UNKNOWN", label="UNKNOWN state")
 
         if state == S.WORLD and is_first_world_snapshot:
-            _save_first_world_screenshot(device, screen)
+            save_debug_image(screen, device.serial, prefix="FIRST_WORLD", label="First WORLD")
             is_first_world_snapshot = False
 
         if state == S.WORLD:
@@ -672,38 +1027,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 pass
 
             if dispatched_count >= config.MAX_SLOTS:
-                success = _handle_queue_full(device, switched_account)
-                if not success:
-                    return
-
-                switched_account = True
-                log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
-                _initial_navigate_to_world(device)
-
-                # Reset trạng thái
-                last_state = None
-                stuck_count = 0
-                dispatched_count = 0
-                is_first_world_snapshot = True
-                reset_slider_state()
-                # Khoá BACK 2 phút sau khi chuyển acc
-                device._back_locked_until = time.monotonic() + 120.0
-                log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
-
-                # Đọc lại huy hiệu ban đầu cho tài khoản mới
-                n0, mx0 = _read_initial_slot_badge_with_retries(device)
-                if mx0 is not None and mx0 > 0:
-                    config.MAX_SLOTS = mx0
-                if n0 is not None:
-                    dispatched_count = n0
-                    log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                else:
-                    log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
-                    dispatched_count = 0
-
-                if dispatched_count >= config.MAX_SLOTS:
-                    _handle_queue_full(device, switched_account)
-                    return
+                log.info("Đồng bộ hàng đợi: hàng chờ đã đầy (%d/%d). Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
+                if "farm" in remaining_workflows:
+                    remaining_workflows.remove("farm")
                 continue
 
 
@@ -747,35 +1073,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                         )
                         dispatched_count = n_sync
                     if n_sync >= config.MAX_SLOTS:
-                        success = _handle_queue_full(device, switched_account)
-                        if not success:
-                            return
-                        switched_account = True
-                        log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
-                        _initial_navigate_to_world(device)
-                        last_state = None
-                        stuck_count = 0
-                        dispatched_count = 0
-                        is_first_world_snapshot = True
-                        reset_slider_state()
-                        # Khoá BACK 2 phút sau khi chuyển acc
-                        device._back_locked_until = time.monotonic() + 120.0
-                        log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
-
-                        # Đọc lại huy hiệu ban đầu cho tài khoản mới
-                        n0, mx0 = _read_initial_slot_badge_with_retries(device)
-                        if mx0 is not None and mx0 > 0:
-                            config.MAX_SLOTS = mx0
-                        if n0 is not None:
-                            dispatched_count = n0
-                            log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                        else:
-                            log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
-                            dispatched_count = 0
-
-                        if dispatched_count >= config.MAX_SLOTS:
-                            _handle_queue_full(device, switched_account)
-                            return
+                        log.info("Đồng bộ hàng đợi: hàng chờ đã đầy (%d/%d) sau khi gửi lỗi. Hoàn thành chu trình FARM.", n_sync, config.MAX_SLOTS)
+                        if "farm" in remaining_workflows:
+                            remaining_workflows.remove("farm")
                         continue
                 else:
                     log.info(
@@ -847,7 +1147,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             else:
                 remaining = device._back_locked_until - time.monotonic()
                 log.warning("Handler crash -> BACK bị khoá còn %.0fs (sau bật game/chuyển acc)", remaining)
-            time.sleep(2.0)
+            pause(2.0)
             continue
 
         if result.goal_reached:
@@ -856,7 +1156,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             # auto-detects MAX_SLOTS and uses the GAME'S count as the
             # source of truth (more reliable than local counting since
             # the user may have had marches running before bot start).
-            time.sleep(1.5)
+            pause(1.5)
             try:
                 post_screen = device.snapshot()
                 n, mx = read_slot_badge(post_screen)
@@ -875,38 +1175,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 dispatched_count, config.MAX_SLOTS,
             )
             if dispatched_count >= config.MAX_SLOTS:
-                success = _handle_queue_full(device, switched_account)
-                if not success:
-                    return
-
-                switched_account = True
-                log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
-                _initial_navigate_to_world(device)
-
-                # Reset trạng thái
-                last_state = None
-                stuck_count = 0
-                dispatched_count = 0
-                is_first_world_snapshot = True
-                reset_slider_state()
-                # Khoá BACK 2 phút sau khi chuyển acc
-                device._back_locked_until = time.monotonic() + 120.0
-                log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
-
-                # Đọc lại huy hiệu ban đầu cho tài khoản mới
-                n0, mx0 = _read_initial_slot_badge_with_retries(device)
-                if mx0 is not None and mx0 > 0:
-                    config.MAX_SLOTS = mx0
-                if n0 is not None:
-                    dispatched_count = n0
-                    log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-                else:
-                    log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
-                    dispatched_count = 0
-
-                if dispatched_count >= config.MAX_SLOTS:
-                    _handle_queue_full(device, switched_account)
-                    return
+                log.info("Hàng chờ đã đầy (%d/%d) sau khi gửi quân thành công. Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
+                if "farm" in remaining_workflows:
+                    remaining_workflows.remove("farm")
                 continue
 
             # Cơ chế vào city rồi lại về world (tránh bám đuôi camera)
@@ -923,44 +1194,15 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 log.info("Cơ chế City-World đã bị tắt trong cấu hình.")
             wait_sec = random.randint(config.DELAY_AFTER_DISPATCH_MIN, config.DELAY_AFTER_DISPATCH_MAX)
             log.info("Sau khi gửi quân, chờ %d giây trước chu kỳ tiếp theo...", wait_sec)
-            time.sleep(float(wait_sec))
+            pause(float(wait_sec))
             last_state = None
             stuck_count = 0
             continue
 
         if result.slots_full:
-            success = _handle_queue_full(device, switched_account)
-            if not success:
-                return
-
-            switched_account = True
-            log.info("Bắt đầu lại quy trình farm từ đầu với tài khoản mới...")
-            _initial_navigate_to_world(device)
-
-            # Reset trạng thái
-            last_state = None
-            stuck_count = 0
-            dispatched_count = 0
-            is_first_world_snapshot = True
-            reset_slider_state()
-            # Khoá BACK 2 phút sau khi chuyển acc
-            device._back_locked_until = time.monotonic() + 120.0
-            log.info("Khoá nút BACK trong 2 phút sau khi chuyển tài khoản.")
-
-            # Đọc lại huy hiệu ban đầu cho tài khoản mới
-            n0, mx0 = _read_initial_slot_badge_with_retries(device)
-            if mx0 is not None and mx0 > 0:
-                config.MAX_SLOTS = mx0
-            if n0 is not None:
-                dispatched_count = n0
-                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
-            else:
-                log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
-                dispatched_count = 0
-
-            if dispatched_count >= config.MAX_SLOTS:
-                _handle_queue_full(device, switched_account)
-                return
+            log.info("Hàng chờ đã đầy (slots_full) được phát hiện bởi handler. Hoàn thành chu trình FARM.")
+            if "farm" in remaining_workflows:
+                remaining_workflows.remove("farm")
             continue
 
         pause(result.sleep_after, result.sleep_after + 0.5)

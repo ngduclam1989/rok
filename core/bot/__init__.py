@@ -40,6 +40,7 @@ from .state import S, StepResult
 _CONFIG_NAMES = frozenset({
     "MAX_SLOTS", "TARGET_LEVEL", "RESOURCE_TAB",
     "SKIP_LEVEL_ADJUST", "TURN_WAIT_SEC", "GATHER_MIN_SEC",
+    "ONLY_CLAIM_VIP",
 })
 
 

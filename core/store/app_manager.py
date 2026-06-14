@@ -9,15 +9,16 @@ GAME_PACKAGE_NAME = "com.rok.gp.vn"
 
 def restart_game_app(device: Any) -> None:
     """Tự động tắt ứng dụng game (nếu đang chạy) và khởi chạy lại sạch sẽ qua ADB."""
+    from core.bot.signals import pause
     log.info("[%s] Đang tự động khởi động lại ứng dụng game (%s)...", device.serial, GAME_PACKAGE_NAME)
     try:
         # Tắt ứng dụng trước
         device._adb_shell("am", "force-stop", GAME_PACKAGE_NAME)
-        time.sleep(1.5)
+        pause(1.5)
         # Khởi động lại ứng dụng bằng monkey command
         device._adb_shell("monkey", "-p", GAME_PACKAGE_NAME, "-c", "android.intent.category.LAUNCHER", "1")
         log.info("[%s] Đã kích hoạt lệnh mở game, chờ 10s...", device.serial)
-        time.sleep(10.0)
+        pause(10.0)
 
         # Thực hiện longtap tâm màn hình để bỏ qua intro/cinematic
         log.info("[%s] Hết 10s -> Thực hiện longtap vào tâm màn hình...", device.serial)
@@ -34,6 +35,6 @@ def restart_game_app(device: Any) -> None:
                 pass
         
         log.info("[%s] Chờ thêm 15s cho game load vào world...", device.serial)
-        time.sleep(15.0)
+        pause(15.0)
     except Exception as e:
         log.error("Không thể khởi động lại game %s: %s", GAME_PACKAGE_NAME, e)

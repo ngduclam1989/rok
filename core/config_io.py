@@ -139,6 +139,14 @@ def auto_correct_serial(name: str, serial: str) -> str:
     except ValueError:
         return serial
 
+    # Nếu cổng hiện tại đang mở/hoạt động, giữ nguyên không tự động sửa
+    from core.bot.bluestack import is_port_open
+    try:
+        if is_port_open(current_port, host=host):
+            return serial
+    except Exception:
+        pass
+
     # 4. Tìm port đúng
     correct_port = None
     dev_name_lower = name.lower().strip()
@@ -279,13 +287,15 @@ def load_global_settings(devices_file: Path) -> None:
             "enable_city_world_toggle": "ENABLE_CITY_WORLD_TOGGLE",
             "city_world_toggle_probability": "CITY_WORLD_TOGGLE_PROBABILITY",
             "enable_input_lock": "ENABLE_INPUT_LOCK",
+            "save_drag_path_images": "SAVE_DRAG_PATH_IMAGES",
+            "enable_vip_claim": "ENABLE_VIP_CLAIM",
         }
         
         for yaml_key, config_key in mapping.items():
             if yaml_key in settings:
                 val = settings[yaml_key]
                 try:
-                    if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "ENABLE_INPUT_LOCK"):
+                    if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "ENABLE_INPUT_LOCK", "SAVE_DRAG_PATH_IMAGES", "ENABLE_VIP_CLAIM"):
                         parsed_val = bool(val)
                     elif config_key == "CITY_WORLD_TOGGLE_PROBABILITY":
                         parsed_val = float(val)

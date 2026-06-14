@@ -354,6 +354,64 @@ class Device:
                 str(int(duration_ms)),
             )
 
+    def save_swipe_path_image(self, x1: int, y1: int, x2: int, y2: int) -> None:
+        """Capture screenshot and draw the mouse swipe path from (x1, y1) to (x2, y2)."""
+        try:
+            from core.bot import config
+            if not getattr(config, "SAVE_DRAG_PATH_IMAGES", True):
+                return
+
+            screen = self.snapshot()
+            if screen is None:
+                return
+
+            from core.bot.constants import CAPTURES_DIR
+            out_dir = CAPTURES_DIR / "mouse_paths"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            from core.mouse import mouse_bez
+            points = mouse_bez((x1, y1), (x2, y2), deviation=8, speed=1)
+            pts = np.array([[int(round(pt[0])), int(round(pt[1]))] for pt in points], dtype=np.int32)
+            pts = pts.reshape((-1, 1, 2))
+
+            drawn = screen.copy()
+
+            # Draw the curve trajectory in neon green
+            cv2.polylines(drawn, [pts], isClosed=False, color=(0, 255, 0), thickness=3, lineType=cv2.LINE_AA)
+
+            # Draw starting point (green circle with white center)
+            cv2.circle(drawn, (int(x1), int(y1)), 8, (0, 255, 0), -1, lineType=cv2.LINE_AA)
+            cv2.circle(drawn, (int(x1), int(y1)), 3, (255, 255, 255), -1, lineType=cv2.LINE_AA)
+
+            # Draw ending point (red circle)
+            cv2.circle(drawn, (int(x2), int(y2)), 8, (0, 0, 255), -1, lineType=cv2.LINE_AA)
+
+            # Draw direction arrow at the end of the path
+            if len(points) >= 2:
+                p_last = (int(x2), int(y2))
+                p_prev = (int(round(points[-2][0])), int(round(points[-2][1])))
+                for pt in reversed(points[:-1]):
+                    px, py = int(round(pt[0])), int(round(pt[1]))
+                    dist = ((px - p_last[0])**2 + (py - p_last[1])**2)**0.5
+                    if dist >= 20:
+                        p_prev = (px, py)
+                        break
+                cv2.arrowedLine(drawn, p_prev, p_last, (0, 0, 255), 3, cv2.LINE_AA, 0, 0.45)
+
+            # Add label text on screen
+            label = f"Swipe: ({x1},{y1}) -> ({x2},{y2})"
+            cv2.putText(drawn, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+
+            import datetime
+            safe_serial = str(self.serial).replace(":", "_").replace(".", "_")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            filename = f"path_{safe_serial}_{timestamp}_{x1}_{y1}_to_{x2}_{y2}.png"
+            out_path = out_dir / filename
+            cv2.imwrite(str(out_path), drawn)
+            log.info("[%s] Saved mouse path screenshot: %s", self.serial, out_path.name)
+        except Exception as e:
+            log.exception("[%s] Failed to save mouse path screenshot: %s", self.serial, e)
+
     def swipe(
         self,
         x1: int,
@@ -366,6 +424,7 @@ class Device:
             "[%s] swipe (%d,%d)->(%d,%d) %dms",
             self.serial, x1, y1, x2, y2, duration_ms,
         )
+        self.save_swipe_path_image(x1, y1, x2, y2)
         if self.control_mode == "physical_mouse" and self._hwnd:
             self._physical_swipe(x1, y1, x2, y2, duration_ms)
         else:

@@ -152,6 +152,14 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         "--control-mode", choices=["adb", "physical_mouse"], default=None,
         help="Chế độ điều khiển giả lập: adb hoặc physical_mouse (chiếm chuột thật PC, mặc định lấy từ devices.yaml hoặc adb)",
     )
+    p.add_argument(
+        "--only-claim-vip", action="store_true",
+        help="Chỉ chạy nhận rương/điểm VIP hàng ngày rồi dừng lại",
+    )
+    p.add_argument(
+        "--enable-vip-claim", action="store_true",
+        help="Bật nhận VIP tự động, chọn ngẫu nhiên thứ tự chạy trước/sau khi farm",
+    )
     p.set_defaults(func=cmd_bot)
 
 

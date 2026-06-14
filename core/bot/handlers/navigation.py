@@ -12,6 +12,7 @@ from core.device import Device
 
 from ..geometry import pct_to_px, region_pct_to_px, tap_template, tap_template_debug, ocr_text_in, try_template
 from ..state import StepResult
+from ..capture import save_debug_image
 from .network import check_and_handle_network_popup
 
 log = logging.getLogger(__name__)
@@ -146,17 +147,43 @@ def handle_switch_account(device: Device) -> bool:
         log.warning("Realtime: Không chụp được ảnh màn hình sau chạm Nhân vật: %s", e)
         return False
 
-    # 4. Quét tìm và chạm nút Ngôi sao
+    # 4. Quét tìm và chạm nút Ngôi sao (chạm lệch phải để chọn dòng nhân vật)
     log.info("Tìm nút Ngôi sao theo template hình ảnh trong vùng (20, 20, 80, 80)...")
-    pos_star = tap_template_debug(
-        device, screen_post_char, "btn_ngoi_sao.png", 0.5,
-        region_pct=(20, 20, 80, 80),
-    )
+    try:
+        region_px = region_pct_to_px(screen_post_char, (20, 20, 80, 80))
+        pos_star = device.find_template_in(
+            "btn_ngoi_sao.png", screen_post_char, threshold=0.5, region=region_px
+        )
+    except FileNotFoundError:
+        log.error("Thiếu template: btn_ngoi_sao.png")
+        pos_star = None
+    except Exception as e:
+        log.warning("Lỗi khi quét tìm Ngôi sao: %s", e)
+        pos_star = None
+
     if pos_star is None:
         log.warning("Không tìm thấy nút Ngôi sao theo hình ảnh trong vùng quét!")
         return False
 
-    log.info("Đã tìm thấy và chạm nút Ngôi sao tại: %r. Chờ ổn định 5s...", pos_star)
+    # Tính toán tọa độ click lệch phải 200px để chạm vào dòng nhân vật
+    x_click = pos_star[0] + 200
+    y_click = pos_star[1]
+    log.info("Đã tìm thấy Ngôi sao tại: %r. Chạm lệch phải tại (%d, %d) để chọn dòng nhân vật. Chờ ổn định 5s...", pos_star, x_click, y_click)
+
+    try:
+        save_debug_image(
+            screen_post_char,
+            device.serial,
+            subdir="switch_account",
+            prefix="star_found",
+            clicks=[(x_click, y_click)],
+            rects=[(pos_star[0] - 20, pos_star[1] - 20, pos_star[0] + 20, pos_star[1] + 20)],
+            label="Chon Dong Nhan Vat (Lech Phai 200px)",
+        )
+    except Exception as err:
+        log.warning("Không lưu được ảnh debug ngôi sao: %s", err)
+
+    device.tap(x_click, y_click)
     time.sleep(5.0)
 
     # 5. Quét tìm và chạm nút Yes

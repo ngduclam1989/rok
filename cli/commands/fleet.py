@@ -38,90 +38,115 @@ def cmd_fleet(args: argparse.Namespace) -> int:
         from core.device import Device
         from core import bot as bot_engine
         from core.bot.bluestack import start_bluestack, stop_bluestack, get_instance_name_by_port, is_port_open
-        from core.bot.signals import install_signal_handler, install_pause_hotkey, should_stop
+        from core.bot.signals import (
+            install_signal_handler,
+            install_pause_hotkey,
+            should_stop,
+            wait_if_paused,
+            pause,
+            sleep_with_stop_check_exact,
+        )
         from ..paths import TEMPLATES_DIR
 
         logging.info("=== CHẾ ĐỘ CHẠY TUẦN TỰ (SEQUENTIAL MODE) ===")
         install_signal_handler()
         install_pause_hotkey()   # Ctrl+Space pause/resume
 
-        members_cfg = load_bot_fleet_config(DEVICES_FILE)
-        if not members_cfg:
-            logging.error(
-                "Không có máy nào trong devices.yaml. "
-                "Thêm 1 thiết bị rồi chạy lại.",
+        while not should_stop():
+            members_cfg = load_bot_fleet_config(DEVICES_FILE)
+            if not members_cfg:
+                logging.error(
+                    "Không có máy nào trong devices.yaml. "
+                    "Thêm 1 thiết bị rồi chạy lại.",
+                )
+                return 1
+
+            ordered_members = list(members_cfg)
+            sys.stdout.write(
+                f"\n=== BẮT ĐẦU CHẠY TUẦN TỰ MỘT LƯỢT "
+                f"(Thứ tự: {[m.name for m in ordered_members]}) ===\n",
             )
-            return 1
 
-        ordered_members = list(members_cfg)
-        sys.stdout.write(
-            f"\n=== BẮT ĐẦU CHẠY TUẦN TỰ MỘT LƯỢT "
-            f"(Thứ tự: {[m.name for m in ordered_members]}) ===\n",
-        )
+            for index, c in enumerate(ordered_members):
+                wait_if_paused()
+                if should_stop():
+                    break
 
-        for index, c in enumerate(ordered_members):
+                sys.stdout.write(
+                    f"[{index + 1}/{len(ordered_members)}] Đang kiểm tra thiết bị: {c.name} ({c.serial})...\n"
+                )
+
+                # Kiểm tra xem có phải Bluestacks không
+                s = str(c.serial).strip()
+                port_str = s.split(":")[-1] if ":" in s else s
+                is_bluestacks = False
+                try:
+                    port = int(port_str)
+                    if get_instance_name_by_port(port) is not None:
+                        is_bluestacks = True
+                except ValueError:
+                    pass
+
+                try:
+                    # B1: kiểm tra xem bluestack có địa chỉ đã bật chưa, chưa thì bật lên và chờ 10s còn đã bật rồi thì chạy B2
+                    if is_bluestacks:
+                        logging.info("[%s] B1: Kiểm tra trạng thái Bluestacks...", c.name)
+                        already_on = is_port_open(port)
+                        if not already_on:
+                            logging.info("[%s] Bluestacks chưa bật. Tiến hành bật lên...", c.name)
+                            if not start_bluestack(c.serial):
+                                logging.error("[%s] Không thể khởi động hoặc kết nối Bluestacks. Chuyển sang máy tiếp theo.", c.name)
+                                continue
+                            logging.info("[%s] Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...", c.name)
+                            pause(10.0)
+                        else:
+                            logging.info("[%s] Bluestacks đã bật sẵn.", c.name)
+
+                    # Khởi tạo thiết bị
+                    try:
+                        control_mode = getattr(c, "control_mode", "adb")
+                        device = Device(c.serial, TEMPLATES_DIR, control_mode=control_mode)
+                    except Exception as e:
+                        logging.error("Không thể kết nối đến thiết bị %s: %s. Chuyển sang thiết bị tiếp theo.", c.name, e)
+                        continue
+
+                    # Gán tham số cấu hình bot
+                    bot_engine.TARGET_LEVEL = c.target_level
+                    bot_engine.MAX_SLOTS = c.max_slots
+                    bot_engine.RESOURCE_TAB = c.resource
+                    bot_engine.SKIP_LEVEL_ADJUST = c.skip_level_adjust
+                    bot_engine.TURN_WAIT_SEC = c.turn_wait_min * 60
+
+                    # Chạy kịch bản farm
+                    logging.info("Bắt đầu chạy kịch bản farm cho thiết bị %s...", c.name)
+                    try:
+                        bot_engine.run(device)
+                    except Exception as e:
+                        logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
+                finally:
+                    # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và giữ nguyên Bluestacks (không tắt)
+                    if is_bluestacks:
+                        logging.info(">>> Dọn dẹp thiết bị %s. Giữ nguyên trạng thái Bluestacks...", c.name)
+                        pause(5.0)
+                    else:
+                        logging.info(">>> Hoàn thành dọn dẹp thiết bị %s. Chờ 5s...\n", c.name)
+                        pause(5.0)
+
             if should_stop():
                 break
 
-            sys.stdout.write(
-                f"[{index + 1}/{len(ordered_members)}] Đang kiểm tra thiết bị: {c.name} ({c.serial})...\n"
+            # B6: Chờ và chạy lại bot (Đọc cấu hình động từ devices.yaml)
+            cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
+            variance = getattr(bot_engine.config, "CYCLE_WAIT_VARIANCE_MIN", 10)
+            min_wait = max(0, cycle_wait - variance)
+            max_wait = cycle_wait + variance
+            wait_sec = random.randint(min_wait * 60, max_wait * 60)
+            logging.info(
+                "🔹 B6: Đã hoàn thành một lượt chạy tuần tự cho tất cả thiết bị. "
+                "Ngủ %d giây (~%.1f phút) trước khi bắt đầu lượt mới...",
+                wait_sec, wait_sec / 60.0
             )
-
-            # Kiểm tra xem có phải Bluestacks không
-            s = str(c.serial).strip()
-            port_str = s.split(":")[-1] if ":" in s else s
-            is_bluestacks = False
-            try:
-                port = int(port_str)
-                if get_instance_name_by_port(port) is not None:
-                    is_bluestacks = True
-            except ValueError:
-                pass
-
-            try:
-                # B1: kiểm tra xem bluestack có địa chỉ đã bật chưa, chưa thì bật lên và chờ 10s còn đã bật rồi thì chạy B2
-                if is_bluestacks:
-                    logging.info("[%s] B1: Kiểm tra trạng thái Bluestacks...", c.name)
-                    already_on = is_port_open(port)
-                    if not already_on:
-                        logging.info("[%s] Bluestacks chưa bật. Tiến hành bật lên...", c.name)
-                        if not start_bluestack(c.serial):
-                            logging.error("[%s] Không thể khởi động hoặc kết nối Bluestacks. Chuyển sang máy tiếp theo.", c.name)
-                            continue
-                        logging.info("[%s] Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...", c.name)
-                        time.sleep(10.0)
-                    else:
-                        logging.info("[%s] Bluestacks đã bật sẵn.", c.name)
-
-                # Khởi tạo thiết bị
-                try:
-                    control_mode = getattr(c, "control_mode", "adb")
-                    device = Device(c.serial, TEMPLATES_DIR, control_mode=control_mode)
-                except Exception as e:
-                    logging.error("Không thể kết nối đến thiết bị %s: %s. Chuyển sang thiết bị tiếp theo.", c.name, e)
-                    continue
-
-                # Gán tham số cấu hình bot
-                bot_engine.TARGET_LEVEL = c.target_level
-                bot_engine.MAX_SLOTS = c.max_slots
-                bot_engine.RESOURCE_TAB = c.resource
-                bot_engine.SKIP_LEVEL_ADJUST = c.skip_level_adjust
-                bot_engine.TURN_WAIT_SEC = c.turn_wait_min * 60
-
-                # Chạy kịch bản farm
-                logging.info("Bắt đầu chạy kịch bản farm cho thiết bị %s...", c.name)
-                try:
-                    bot_engine.run(device)
-                except Exception as e:
-                    logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
-            finally:
-                # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và giữ nguyên Bluestacks (không tắt)
-                if is_bluestacks:
-                    logging.info(">>> Dọn dẹp thiết bị %s. Giữ nguyên trạng thái Bluestacks...", c.name)
-                    time.sleep(5.0)
-                else:
-                    logging.info(">>> Hoàn thành dọn dẹp thiết bị %s. Chờ 5s...\n", c.name)
-                    time.sleep(5.0)
+            sleep_with_stop_check_exact(wait_sec)
 
         logging.info("=== Đã hoàn thành chạy tuần tự cho tất cả thiết bị. Tắt bot ===")
         return 0

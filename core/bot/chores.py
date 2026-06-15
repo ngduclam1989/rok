@@ -28,12 +28,14 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
-from core import ocr
+from core import ocr, vision
 from core.device import Device
 
 from . import humanize
 from .capture import save_debug_image
-from .detection import is_lock_screen
+from .constants import TEMPLATES_DIR
+from .detection import is_lock_screen, detect_state
+from .state import S
 from .geometry import ocr_text_in, pct_to_px, region_pct_to_px
 from .handlers import handle_exit_dialog, handle_lock_screen
 
@@ -257,6 +259,64 @@ def _close_to_world(device: Device, max_back: int = 5) -> bool:
             return True
     log.info("[việc vặt] đóng panel xong (không gặp popup Thoát)")
     return False
+
+
+def _ensure_city_screen(device: Device, screen: np.ndarray) -> np.ndarray | None:
+    """Đảm bảo đang ở màn hình CITY. Nếu ở WORLD thì chuyển sang CITY.
+    Trả về ảnh chụp màn hình CITY mới nhất, hoặc None nếu thất bại.
+    """
+    state = detect_state(device, screen)
+    if state == S.CITY:
+        return screen
+        
+    if state == S.WORLD:
+        log.info("[việc vặt] Đang ở WORLD -> bấm nút chuyển sang CITY")
+        h, w = screen.shape[:2]
+        region_px = region_pct_to_px(screen, (0, 80, 15, 100))
+        try:
+            pos = device.find_template_in("btn_map_toggle.png", screen, 0.75, region=region_px)
+        except Exception:
+            pos = None
+        if pos is not None:
+            device.tap(*pos)
+        else:
+            device.tap(int(w * 0.06), int(h * 0.912))
+        time.sleep(2.5)
+        try:
+            screen = device.snapshot()
+        except Exception:
+            return None
+        state = detect_state(device, screen)
+        if state == S.CITY:
+            return screen
+
+    # Nếu vẫn không ở CITY (có thể đang ở trong panel/popup nào đó), đóng về WORLD rồi chuyển sang CITY
+    log.warning("[việc vặt] Không ở màn hình CITY (trạng thái: %s) -> đưa về world rồi sang city", state.value)
+    if _close_to_world(device):
+        try:
+            screen = device.snapshot()
+        except Exception:
+            return None
+        h, w = screen.shape[:2]
+        region_px = region_pct_to_px(screen, (0, 80, 15, 100))
+        try:
+            pos = device.find_template_in("btn_map_toggle.png", screen, 0.75, region=region_px)
+        except Exception:
+            pos = None
+        if pos is not None:
+            device.tap(*pos)
+        else:
+            device.tap(int(w * 0.06), int(h * 0.912))
+        time.sleep(2.5)
+        try:
+            screen = device.snapshot()
+        except Exception:
+            return None
+        state = detect_state(device, screen)
+        if state == S.CITY:
+            return screen
+            
+    return None
 
 
 def _has_red_dot(
@@ -849,31 +909,65 @@ def _has_help_icon(screen) -> bool:
 
 
 def do_alliance_help(device: Device) -> bool:
-    """Tap icon bắt tay phía trên Liên Minh nếu hiện (assist 1-tap).
-
-    Icon "bắt tay" floating phía trên nút Liên Minh xuất hiện khi có
-    thành viên đang xây/nghiên cứu cần giúp. Tap 1 phát = RoK auto
-    batch trợ giúp tất cả (không cần mở panel). Không có icon thì
-    skip — KHÔNG mở panel Liên Minh vô ích.
+    """Tap icon bắt tay (Helper.png) trên màn hình City.
 
     Luồng:
-      1. Mở khoá nếu khoá, snapshot màn World/City.
-      2. Check badge đỏ tại ``_HELP_BADGE``. Không có -> log + return.
-      3. Có -> tap ``_HELP_ICON`` -> ngủ 1-1.5s cho icon biến mất.
+      1. Đảm bảo đang ở màn hình City (chuyển về nếu đang ở World).
+      2. Quét tìm Helper.png trong vùng coords="1436,844,2378,1063".
+      3. Nếu tìm thấy, thực hiện click vào tọa độ tâm +-10 pixel ngẫu nhiên.
     """
     log.info("[việc vặt] Trợ giúp liên minh")
     screen = _wake_and_unlock(device)
     if screen is None:
         return False
-    screen = _ensure_alliance_button_visible(device, screen)
 
-    if not _has_help_icon(screen):
-        log.info("[việc vặt] không có icon Trợ giúp -> skip")
+    # Đảm bảo đang ở màn CITY
+    screen = _ensure_city_screen(device, screen)
+    if screen is None:
+        log.warning("[việc vặt] Không thể chuyển về màn CITY -> skip")
+        return False
+
+    # Quy đổi vùng tìm kiếm coords="1436,844,2378,1063" tương ứng với độ phân giải thực tế
+    h, w = screen.shape[:2]
+    scale_x = w / 2400.0
+    scale_y = h / 1080.0
+    x1 = int(1436 * scale_x)
+    y1 = int(844 * scale_y)
+    x2 = int(2378 * scale_x)
+    y2 = int(1063 * scale_y)
+    region = (x1, y1, x2, y2)
+
+    # Quét tìm Helper.png sử dụng dải tỉ lệ hỗ trợ màn hình thu nhỏ
+    scales = (1.0, 0.95, 1.05, 0.9, 1.1, 0.43, 0.42, 0.44, 0.41, 0.45)
+    tpl_path = TEMPLATES_DIR / "Helper.png"
+    if not tpl_path.exists():
+        log.error("[việc vặt] Không tìm thấy file template Helper.png")
+        return False
+
+    hit = vision.find_template(
+        image=screen,
+        template_path=tpl_path,
+        region=region,
+        threshold=0.75,
+        scales=scales
+    )
+
+    if hit is None:
+        log.info("[việc vặt] Không tìm thấy biểu tượng Trợ giúp (Helper.png) trong vùng quét -> skip")
         return True
 
-    log.info("[việc vặt] có icon Trợ giúp -> tap (%.1f, %.1f)",
-             _HELP_ICON[0], _HELP_ICON[1])
-    _tap(device, screen, _HELP_ICON)
+    # Lấy tọa độ trung tâm và thêm độ lệch ngẫu nhiên +-10 pixel
+    click_x = hit.cx + random.randint(-10, 10)
+    click_y = hit.cy + random.randint(-10, 10)
+
+    # Đảm bảo điểm click nằm trong phạm vi màn hình
+    click_x = max(0, min(w - 1, click_x))
+    click_y = max(0, min(h - 1, click_y))
+
+    log.info("[việc vặt] Phát hiện Trợ giúp tại tâm (%d, %d) -> Click vào vị trí ngẫu nhiên (%d, %d)", 
+             hit.cx, hit.cy, click_x, click_y)
+             
+    device.tap(click_x, click_y)
     time.sleep(random.uniform(1.0, 1.5))
     return True
 
@@ -951,8 +1045,147 @@ def chore_aware_sleep(device: Device, total_sec: float) -> None:
     sleep_with_stop_check_exact(rest)
 
 
+# --- Thu hoạch tài nguyên thành phố (City Resources) ---
+_CITY_RES_REF_SIZE = (2400, 1080)
+_CITY_RES_REGION_REF = (573, 126, 1875, 968)
+_CITY_RES_THRESHOLD = 0.80
+_CITY_RES_TEMPLATES = [
+    ("wood", "wood_1.png"),
+    ("wood", "wood_2.png"),
+    ("corn", "Corn_1.png"),
+    ("corn", "Corn_2.png"),
+    ("stone", "Stone_1.png"),
+    ("stone", "Stone_2.png"),
+    ("gold", "Gold_1.png"),
+    ("gold", "Gold_2.png"),
+]
+
+def _scale_ref_region(
+    screen: np.ndarray,
+    region_ref: tuple[int, int, int, int],
+    ref_size: tuple[int, int] = _CITY_RES_REF_SIZE,
+) -> tuple[int, int, int, int]:
+    """Scale absolute coords measured on the reference screen to this device."""
+    h, w = screen.shape[:2]
+    ref_w, ref_h = ref_size
+    x1, y1, x2, y2 = region_ref
+    sx1 = max(0, min(w, int(w * x1 / ref_w)))
+    sy1 = max(0, min(h, int(h * y1 / ref_h)))
+    sx2 = max(0, min(w, int(w * x2 / ref_w)))
+    sy2 = max(0, min(h, int(h * y2 / ref_h)))
+    return sx1, sy1, sx2, sy2
+
+def _random_point_in_template_hit(hit: vision.MatchHit) -> tuple[int, int]:
+    """Pick a non-centre-ish point that stays inside the matched template."""
+    half_w = max(1, hit.width // 2)
+    half_h = max(1, hit.height // 2)
+    x1 = hit.cx - half_w
+    y1 = hit.cy - half_h
+    x2 = hit.cx + half_w
+    y2 = hit.cy + half_h
+
+    # Keep the requested target inside the icon even after Device.tap adds
+    # small gaussian noise around it.
+    margin_x = min(max(4, hit.width // 5), max(0, hit.width // 2 - 1))
+    margin_y = min(max(4, hit.height // 5), max(0, hit.height // 2 - 1))
+    lo_x, hi_x = x1 + margin_x, x2 - margin_x
+    lo_y, hi_y = y1 + margin_y, y2 - margin_y
+    if lo_x >= hi_x:
+        lo_x, hi_x = x1, x2
+    if lo_y >= hi_y:
+        lo_y, hi_y = y1, y2
+    return random.randint(lo_x, hi_x), random.randint(lo_y, hi_y)
+
+def _find_city_resource_hits(
+    screen: np.ndarray,
+    *,
+    threshold: float = _CITY_RES_THRESHOLD,
+) -> dict[str, tuple[vision.MatchHit, str]]:
+    """Find city resource icons, merging _1/_2 variants by resource type."""
+    region = _scale_ref_region(screen, _CITY_RES_REGION_REF)
+    best_by_res: dict[str, tuple[vision.MatchHit, str]] = {}
+    for res_name, tpl_name in _CITY_RES_TEMPLATES:
+        tpl_path = TEMPLATES_DIR / tpl_name
+        try:
+            hit = vision.find_template(
+                screen,
+                tpl_path,
+                region=region,
+                threshold=threshold,
+                scales=(1.0, 0.95, 1.05, 0.9, 1.1),
+            )
+        except FileNotFoundError:
+            log.error("[city-res] thieu template: %s", tpl_name)
+            continue
+        if hit is None:
+            continue
+        old = best_by_res.get(res_name)
+        if old is None or hit.score > old[0].score:
+            best_by_res[res_name] = (hit, tpl_name)
+    return best_by_res
+
+def collect_city_resources(device: Device, max_resources: int = 4) -> bool:
+    """Collect floating city resources by matching the 8 resource templates.
+
+    This is intentionally separate from VIP/alliance/farm chores. It first
+    navigates to CITY if needed, scans coords="573,126,1875,968" on the
+    2400x1080 reference frame, merges *_1 and *_2 variants per resource type,
+    then taps up to 4 resource types in random order at points inside each hit.
+    """
+    log.info("[city-res] thu tai nguyen trong thanh")
+    screen = _wake_and_unlock(device)
+    if screen is None:
+        return False
+
+    screen = _ensure_city_screen(device, screen)
+    if screen is None:
+        return False
+
+    hits_by_res = _find_city_resource_hits(screen)
+    if not hits_by_res:
+        log.info("[city-res] khong thay icon tai nguyen nao trong vung scan")
+        return True
+
+    items = list(hits_by_res.items())
+    random.shuffle(items)
+    items = items[: max(0, int(max_resources))]
+    clicks: list[tuple[int, int]] = []
+    rects: list[tuple[int, int, int, int]] = [_scale_ref_region(screen, _CITY_RES_REGION_REF)]
+
+    for res_name, (hit, tpl_name) in items:
+        x, y = _random_point_in_template_hit(hit)
+        clicks.append((x, y))
+        rects.append((
+            hit.cx - hit.width // 2,
+            hit.cy - hit.height // 2,
+            hit.cx + hit.width // 2,
+            hit.cy + hit.height // 2,
+        ))
+        log.info(
+            "[city-res] %s match %s conf=%.2f box=%dx%d center=(%d,%d) -> tap=(%d,%d)",
+            res_name, tpl_name, hit.score, hit.width, hit.height, hit.cx, hit.cy, x, y,
+        )
+
+    save_debug_image(
+        screen,
+        getattr(device, "serial", "dev"),
+        subdir="city_resources",
+        prefix="city_res",
+        clicks=clicks,
+        rects=rects,
+        label="City Resources",
+    )
+
+    for x, y in clicks:
+        humanize.human_inter_action_pause()
+        device.tap(x, y)
+        time.sleep(random.uniform(0.25, 0.55))
+    return True
+
+
 __all__ = [
     "chore_aware_sleep",
+    "collect_city_resources",
     "do_alliance_gifts",
     "do_alliance_help",
     "do_alliance_tech",

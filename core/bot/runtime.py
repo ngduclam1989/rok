@@ -160,6 +160,21 @@ def _claim_vip(device: Device) -> None:
         log.exception("Lỗi khi thực hiện nhận VIP: %s", e)
 
 
+def _build_randomized_workflows() -> list[str]:
+    """Tạo danh sách các hành động khởi đầu với tỷ lệ ngẫu nhiên:
+      * getres: 100%
+      * alliance: 100%
+      * farm: 100%
+      * vip: 30%
+    Sau đó xáo trộn thứ tự các hành động này.
+    """
+    workflows = ["getres", "alliance", "farm"]
+    if random.random() < 0.30:
+        workflows.append("vip")
+    random.shuffle(workflows)
+    return workflows
+
+
 _chores_first: bool = True
 
 
@@ -773,8 +788,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     pause(wait_b1)
 
     # Khởi tạo danh sách chu trình ngẫu nhiên cho tài khoản đầu tiên
-    remaining_workflows = ["vip", "alliance", "farm"]
-    random.shuffle(remaining_workflows)
+    remaining_workflows = _build_randomized_workflows()
     log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản này: %s ===", remaining_workflows)
 
     last_state: S | None = None
@@ -834,8 +848,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             pause(wait_b1)
 
             # Khởi tạo lại chu trình cho tài khoản mới
-            remaining_workflows = ["vip", "alliance", "farm"]
-            random.shuffle(remaining_workflows)
+            remaining_workflows = _build_randomized_workflows()
             log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản mới: %s ===", remaining_workflows)
 
             # Reset các trạng thái của acc mới
@@ -875,22 +888,41 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             log.info(">>> Thực hiện chu trình: HOẠT ĐỘNG LIÊN MINH <<<")
             _prepare_world_only(device)
             from .chores import do_alliance_help, do_alliance_gifts, do_alliance_territory, do_alliance_tech
+            # Trợ giúp liên minh: 100% tỷ lệ thực hiện
             try:
                 do_alliance_help(device)
             except Exception as e:
                 log.warning("Lỗi trợ giúp liên minh: %s", e)
+            # Nhận quà liên minh: 30% tỷ lệ thực hiện
+            if random.random() < 0.30:
+                try:
+                    do_alliance_gifts(device)
+                except Exception as e:
+                    log.warning("Lỗi nhận quà liên minh: %s", e)
+            # Thu tài nguyên lãnh thổ: 30% tỷ lệ thực hiện
+            if random.random() < 0.30:
+                try:
+                    do_alliance_territory(device)
+                except Exception as e:
+                    log.warning("Lỗi thu tài nguyên lãnh thổ: %s", e)
+            # Đóng góp công nghệ liên minh: 30% tỷ lệ thực hiện
+            if random.random() < 0.30:
+                try:
+                    do_alliance_tech(device)
+                except Exception as e:
+                    log.warning("Lỗi đóng góp công nghệ: %s", e)
+            _prepare_world_only(device)
+            remaining_workflows.pop(0)
+            continue
+
+        elif current_wf == "getres":
+            log.info(">>> Thực hiện chu trình: LẤY TÀI NGUYÊN NỘI THÀNH <<<")
+            _prepare_world_only(device)
+            from .chores import collect_city_resources
             try:
-                do_alliance_gifts(device)
+                collect_city_resources(device, max_resources=4)
             except Exception as e:
-                log.warning("Lỗi nhận quà liên minh: %s", e)
-            try:
-                do_alliance_territory(device)
-            except Exception as e:
-                log.warning("Lỗi thu tài nguyên lãnh thổ: %s", e)
-            try:
-                do_alliance_tech(device)
-            except Exception as e:
-                log.warning("Lỗi đóng góp công nghệ: %s", e)
+                log.warning("Lỗi lấy tài nguyên nội thành: %s", e)
             _prepare_world_only(device)
             remaining_workflows.pop(0)
             continue

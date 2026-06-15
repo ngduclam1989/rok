@@ -9,11 +9,13 @@ import argparse
 
 from core import bot as bot_engine
 
+from .commands.alliance import cmd_alliance
 from .commands.bot import cmd_bot
 from .commands.capture import cmd_capture
 from .commands.detect import cmd_detect
 from .commands.devices import cmd_devices
 from .commands.fleet import cmd_fleet
+from .commands.getres import cmd_getres
 from .commands.run import cmd_run
 from .commands.status import cmd_status
 from .logging_setup import setup_logging
@@ -35,6 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     _build_status_parser(sub)
     _build_capture_parser(sub)
     _build_bot_parser(sub)
+    _build_getres_parser(sub)
+    _build_alliance_parser(sub)
     _build_fleet_parser(sub)
     _build_detect_parser(sub)
 
@@ -161,6 +165,42 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         help="Bật nhận VIP tự động, chọn ngẫu nhiên thứ tự chạy trước/sau khi farm",
     )
     p.set_defaults(func=cmd_bot)
+
+
+def _build_getres_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "getres",
+        help="Chạy riêng hàm lấy tài nguyên nội thành trên 1 thiết bị",
+    )
+    p.add_argument("serial", help="Serial ADB, ví dụ: 127.0.0.1:5555")
+    p.add_argument(
+        "--max-resources",
+        type=int,
+        default=4,
+        help="Số loại tài nguyên tối đa sẽ tap (mặc định: 4)",
+    )
+    p.add_argument(
+        "--control-mode",
+        choices=["adb", "physical_mouse"],
+        default="physical_mouse",
+        help="Chế độ điều khiển (mặc định: physical_mouse)",
+    )
+    p.set_defaults(func=cmd_getres)
+
+
+def _build_alliance_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "alliance",
+        help="Chạy toàn bộ các hành động liên minh (trợ giúp, nhận quà, lãnh thổ, công nghệ) trên 1 thiết bị",
+    )
+    p.add_argument("serial", help="Serial ADB, ví dụ: 127.0.0.1:5555")
+    p.add_argument(
+        "--control-mode",
+        choices=["adb", "physical_mouse"],
+        default="adb",
+        help="Chế độ điều khiển (mặc định: adb)",
+    )
+    p.set_defaults(func=cmd_alliance)
 
 
 def _build_fleet_parser(sub: argparse._SubParsersAction) -> None:

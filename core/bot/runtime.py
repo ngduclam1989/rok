@@ -138,29 +138,31 @@ def _claim_vip(device: Device) -> None:
         vip_point_region = (70.0, 20.0, 82.0, 32.0)
         vip_free_region = (64.0, 45.0, 76.0, 60.0)
 
-        log.info("Kiểm tra nút nhận điểm VIP hàng ngày tại vùng %s", vip_point_region)
+        log.info("Kiểm tra nút nhận điểm VIP và rương VIP miễn phí hàng ngày...")
         screen = device.snapshot()
-        if screen is not None and ocr_text_in(screen, vip_point_region, ("nhan",)):
-            log.info("Phát hiện chữ NHẬN tại vùng điểm VIP -> tiến hành nhận tại %s", vip_point_chest)
-            save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
-                             clicks=[vip_point_chest], label="Nhan Diem VIP")
-            device.tap(*vip_point_chest)
-            pause(5.0)
-            device.tap(*vip_point_chest)
-            pause(1.0)
-        else:
-            log.info("Không phát hiện chữ NHẬN ở vùng điểm VIP -> bỏ qua nhận điểm VIP")
-
-        log.info("Kiểm tra nút nhận rương VIP miễn phí hàng ngày tại vùng %s", vip_free_region)
-        screen = device.snapshot()
-        if screen is not None and ocr_text_in(screen, vip_free_region, ("nhan",)):
-            log.info("Phát hiện chữ NHẬN tại vùng rương VIP miễn phí -> tiến hành nhận tại %s", vip_free_chest)
-            save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
-                             clicks=[vip_free_chest], label="Nhan Ruong VIP Mien Phi")
-            device.tap(*vip_free_chest)
-            pause(1.0)
-        else:
-            log.info("Không phát hiện chữ NHẬN ở vùng rương VIP miễn phí -> bỏ qua nhận rương VIP")
+        if screen is not None:
+            has_point_nhan = ocr_text_in(screen, vip_point_region, ("nhan",))
+            has_free_nhan = ocr_text_in(screen, vip_free_region, ("nhan",))
+            
+            if has_point_nhan or has_free_nhan:
+                log.info("Phát hiện chữ NHẬN (điểm VIP: %s, rương VIP: %s) -> tiến hành nhận cả hai chỗ", has_point_nhan, has_free_nhan)
+                
+                # Nhận điểm VIP
+                save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
+                                 clicks=[vip_point_chest], label="Nhan Diem VIP")
+                device.tap(*vip_point_chest)
+                pause(5.0)
+                device.tap(*vip_point_chest)
+                pause(1.0)
+                
+                # Nhận rương VIP miễn phí
+                log.info("Tiến hành nhận rương VIP miễn phí tại %s", vip_free_chest)
+                save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
+                                 clicks=[vip_free_chest], label="Nhan Ruong VIP Mien Phi")
+                device.tap(*vip_free_chest)
+                pause(1.0)
+            else:
+                log.info("Không phát hiện chữ NHẬN ở cả hai vùng điểm VIP và rương VIP -> bỏ qua nhận VIP")
 
         log.info("Thoát giao diện VIP về lại màn hình chính")
         device.key("BACK")

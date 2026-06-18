@@ -128,8 +128,23 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
         if is_bluestacks:
             logging.info("B1: Phát hiện cấu hình Bluestacks. Kiểm tra trạng thái và bật...")
-            already_on = is_port_open(port)
-            if not already_on:
+            instance_name = get_instance_name_by_port(port)
+            is_running = False
+            if instance_name:
+                import psutil
+                for proc in psutil.process_iter(['name', 'cmdline']):
+                    try:
+                        if proc.info['name'] == 'HD-Player.exe' and proc.info['cmdline']:
+                            cmdline = proc.info['cmdline']
+                            if '--instance' in cmdline:
+                                idx = cmdline.index('--instance')
+                                if idx + 1 < len(cmdline) and cmdline[idx+1] == instance_name:
+                                    is_running = True
+                                    break
+                    except Exception:
+                        continue
+            
+            if not is_running:
                 logging.info("Bluestacks chưa bật. Tiến hành bật lên...")
                 if not start_bluestack(serial):
                     logging.error("Không thể khởi động hoặc kết nối Bluestacks cho %s", serial)
@@ -145,12 +160,18 @@ def cmd_bot(args: argparse.Namespace) -> int:
         if control_mode is None:
             control_mode = dev_cfg.control_mode if dev_cfg else "adb"
 
+        bot_engine.config.ENABLE_INPUT_LOCK = False
         device = Device(serial, TEMPLATES_DIR, control_mode=control_mode)
         try:
             bot_engine.run(device, max_iterations=args.max_iter)
         finally:
             if is_bluestacks:
-                logging.info("B5: Kết thúc bot. Giữ nguyên trạng thái Bluestacks (không tắt).")
+                if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):
+                    logging.info("B5: Kết thúc bot. Tiến hành tắt Bluestacks...")
+                    from core.bot.bluestack import stop_bluestack
+                    stop_bluestack(serial)
+                else:
+                    logging.info("B5: Kết thúc bot. Giữ nguyên trạng thái Bluestacks (không tắt).")
                 time.sleep(5.0)
 
         if only_claim_vip or should_stop():
@@ -158,6 +179,9 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
         # B6: Chờ và chạy lại bot (Đọc cấu hình động từ devices.yaml)
         cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
+        if cycle_wait == 0:
+            logging.info("CYCLE_WAIT_MIN = 0 -> Thoát bot sau khi chạy hết vòng.")
+            break
         variance = getattr(bot_engine.config, "CYCLE_WAIT_VARIANCE_MIN", 10)
         min_wait = max(0, cycle_wait - variance)
         max_wait = cycle_wait + variance

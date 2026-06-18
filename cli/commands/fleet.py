@@ -91,8 +91,23 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     # B1: kiểm tra xem bluestack có địa chỉ đã bật chưa, chưa thì bật lên và chờ 10s còn đã bật rồi thì chạy B2
                     if is_bluestacks:
                         logging.info("[%s] B1: Kiểm tra trạng thái Bluestacks...", c.name)
-                        already_on = is_port_open(port)
-                        if not already_on:
+                        instance_name = get_instance_name_by_port(port)
+                        is_running = False
+                        if instance_name:
+                            import psutil
+                            for proc in psutil.process_iter(['name', 'cmdline']):
+                                try:
+                                    if proc.info['name'] == 'HD-Player.exe' and proc.info['cmdline']:
+                                        cmdline = proc.info['cmdline']
+                                        if '--instance' in cmdline:
+                                            idx = cmdline.index('--instance')
+                                            if idx + 1 < len(cmdline) and cmdline[idx+1] == instance_name:
+                                                is_running = True
+                                                break
+                                except Exception:
+                                    continue
+                        
+                        if not is_running:
                             logging.info("[%s] Bluestacks chưa bật. Tiến hành bật lên...", c.name)
                             if not start_bluestack(c.serial):
                                 logging.error("[%s] Không thể khởi động hoặc kết nối Bluestacks. Chuyển sang máy tiếp theo.", c.name)
@@ -105,6 +120,7 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     # Khởi tạo thiết bị
                     try:
                         control_mode = getattr(c, "control_mode", "adb")
+                        bot_engine.config.ENABLE_INPUT_LOCK = False
                         device = Device(c.serial, TEMPLATES_DIR, control_mode=control_mode)
                     except Exception as e:
                         logging.error("Không thể kết nối đến thiết bị %s: %s. Chuyển sang thiết bị tiếp theo.", c.name, e)
@@ -124,9 +140,14 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     except Exception as e:
                         logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
                 finally:
-                    # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và giữ nguyên Bluestacks (không tắt)
+                    # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và đóng Bluestacks nếu cấu hình yêu cầu
                     if is_bluestacks:
-                        logging.info(">>> Dọn dẹp thiết bị %s. Giữ nguyên trạng thái Bluestacks...", c.name)
+                        if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):
+                            logging.info(">>> Dọn dẹp thiết bị %s. Tiến hành tắt Bluestacks...", c.name)
+                            from core.bot.bluestack import stop_bluestack
+                            stop_bluestack(c.serial)
+                        else:
+                            logging.info(">>> Dọn dẹp thiết bị %s. Giữ nguyên trạng thái Bluestacks...", c.name)
                         pause(5.0)
                     else:
                         logging.info(">>> Hoàn thành dọn dẹp thiết bị %s. Chờ 5s...\n", c.name)
@@ -137,6 +158,9 @@ def cmd_fleet(args: argparse.Namespace) -> int:
 
             # B6: Chờ và chạy lại bot (Đọc cấu hình động từ devices.yaml)
             cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
+            if cycle_wait == 0:
+                logging.info("CYCLE_WAIT_MIN = 0 -> Thoát bot sau khi chạy hết vòng.")
+                break
             variance = getattr(bot_engine.config, "CYCLE_WAIT_VARIANCE_MIN", 10)
             min_wait = max(0, cycle_wait - variance)
             max_wait = cycle_wait + variance

@@ -358,7 +358,7 @@ class Device:
         """Capture screenshot and draw the mouse swipe path from (x1, y1) to (x2, y2)."""
         try:
             from core.bot import config
-            if not getattr(config, "SAVE_DRAG_PATH_IMAGES", True):
+            if not getattr(config, "SAVE_DEBUG_IMAGES", False):
                 return
 
             screen = self.snapshot()

@@ -20,7 +20,7 @@ from core.device import Device
 from . import config
 from .constants import CAPTURES_DIR, STOP_FLAG, TEMPLATES_DIR
 from .detection import detect_state, is_lock_screen
-from .geometry import pct_to_px, region_pct_to_px, tap_template
+from .geometry import pct_to_px, region_pct_to_px, tap_template, ocr_text_in
 from .handlers import (
     check_and_handle_network_popup,
     handle_build_menu,
@@ -134,23 +134,33 @@ def _claim_vip(device: Device) -> None:
         device.tap(*vip_pos)
         pause(2.0)
 
-        log.info("Nhận điểm VIP hàng ngày tại %s", vip_point_chest)
+        # Định nghĩa vùng OCR dạng % để tương thích mọi độ phân giải màn hình
+        vip_point_region = (70.0, 20.0, 82.0, 32.0)
+        vip_free_region = (64.0, 45.0, 76.0, 60.0)
+
+        log.info("Kiểm tra nút nhận điểm VIP hàng ngày tại vùng %s", vip_point_region)
         screen = device.snapshot()
-        if screen is not None:
+        if screen is not None and ocr_text_in(screen, vip_point_region, ("nhan",)):
+            log.info("Phát hiện chữ NHẬN tại vùng điểm VIP -> tiến hành nhận tại %s", vip_point_chest)
             save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
                              clicks=[vip_point_chest], label="Nhan Diem VIP")
-        device.tap(*vip_point_chest)
-        pause(5.0)
-        device.tap(*vip_point_chest)
-        pause(1.0)
+            device.tap(*vip_point_chest)
+            pause(5.0)
+            device.tap(*vip_point_chest)
+            pause(1.0)
+        else:
+            log.info("Không phát hiện chữ NHẬN ở vùng điểm VIP -> bỏ qua nhận điểm VIP")
 
-        log.info("Nhận rương VIP miễn phí hàng ngày tại %s", vip_free_chest)
+        log.info("Kiểm tra nút nhận rương VIP miễn phí hàng ngày tại vùng %s", vip_free_region)
         screen = device.snapshot()
-        if screen is not None:
+        if screen is not None and ocr_text_in(screen, vip_free_region, ("nhan",)):
+            log.info("Phát hiện chữ NHẬN tại vùng rương VIP miễn phí -> tiến hành nhận tại %s", vip_free_chest)
             save_debug_image(screen, device.serial, subdir="vip_claims", prefix="vip",
                              clicks=[vip_free_chest], label="Nhan Ruong VIP Mien Phi")
-        device.tap(*vip_free_chest)
-        pause(1.0)
+            device.tap(*vip_free_chest)
+            pause(1.0)
+        else:
+            log.info("Không phát hiện chữ NHẬN ở vùng rương VIP miễn phí -> bỏ qua nhận rương VIP")
 
         log.info("Thoát giao diện VIP về lại màn hình chính")
         device.key("BACK")
@@ -165,11 +175,11 @@ def _build_randomized_workflows() -> list[str]:
       * getres: 100%
       * alliance: 100%
       * farm: 100%
-      * vip: 30%
+      * vip: 100% (nếu được bật trong cấu hình)
     Sau đó xáo trộn thứ tự các hành động này.
     """
     workflows = ["getres", "alliance", "farm"]
-    if random.random() < 0.30:
+    if getattr(config, "ENABLE_VIP_CLAIM", True):
         workflows.append("vip")
     random.shuffle(workflows)
     return workflows

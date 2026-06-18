@@ -286,16 +286,17 @@ def load_global_settings(devices_file: Path) -> None:
             "delay_after_dispatch_max": "DELAY_AFTER_DISPATCH_MAX",
             "enable_city_world_toggle": "ENABLE_CITY_WORLD_TOGGLE",
             "city_world_toggle_probability": "CITY_WORLD_TOGGLE_PROBABILITY",
-            "enable_input_lock": "ENABLE_INPUT_LOCK",
-            "save_drag_path_images": "SAVE_DRAG_PATH_IMAGES",
+            "save_drag_path_images": "SAVE_DEBUG_IMAGES",
+            "save_debug_images": "SAVE_DEBUG_IMAGES",
             "enable_vip_claim": "ENABLE_VIP_CLAIM",
+            "auto_close_bluestack": "AUTO_CLOSE_BLUESTACK",
         }
         
         for yaml_key, config_key in mapping.items():
             if yaml_key in settings:
                 val = settings[yaml_key]
                 try:
-                    if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "ENABLE_INPUT_LOCK", "SAVE_DRAG_PATH_IMAGES", "ENABLE_VIP_CLAIM"):
+                    if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "SAVE_DEBUG_IMAGES", "ENABLE_VIP_CLAIM", "AUTO_CLOSE_BLUESTACK"):
                         parsed_val = bool(val)
                     elif config_key == "CITY_WORLD_TOGGLE_PROBABILITY":
                         parsed_val = float(val)

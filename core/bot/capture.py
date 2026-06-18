@@ -39,6 +39,9 @@ def save_debug_image(
     rects: Sequence[tuple[int, int, int, int]] | None = None,
     label: str = "",
 ) -> Path | None:
+    from . import config
+    if not getattr(config, "SAVE_DEBUG_IMAGES", False):
+        return None
     """Lưu ảnh debug với vòng tròn đỏ tại điểm click và hình chữ nhật xanh cho vùng highlight.
 
     Args:

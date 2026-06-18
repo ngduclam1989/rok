@@ -18,7 +18,7 @@ Point = tuple[float, float]
 def get_gaussian_click_coords(
     target_x: int | float,
     target_y: int | float,
-    sigma: float = 5,
+    sigma: float = 10,
 ) -> tuple[int, int]:
     """Return click coordinates sampled around a target by Gaussian noise."""
     sigma = max(0.0, float(sigma))

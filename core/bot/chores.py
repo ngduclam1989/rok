@@ -389,7 +389,7 @@ def _drain_xac_nhan_popups(device: Device, max_iters: int = 6) -> None:
             return
         log.info("[việc vặt] tap Xác nhận (%d)", i + 1)
         _tap(device, scr, _XAC_NHAN)
-        time.sleep(random.uniform(1.3, 1.9))
+        time.sleep(random.uniform(1.0, 1.5))
     log.warning(
         "[việc vặt] vẫn còn popup Xác nhận sau %d lần tap -> bỏ qua",
         max_iters,
@@ -407,14 +407,14 @@ def _claim_gift_tab(
         log.exception("[việc vặt] snapshot trước khi tap tab thất bại")
         return
     _tap(device, screen, tab_pct)
-    time.sleep(random.uniform(1.2, 1.8))
+    time.sleep(random.uniform(1.0, 1.5))
     try:
         screen = device.snapshot()
     except Exception:
         log.exception("[việc vặt] snapshot trước NHẬN TẤT CẢ thất bại")
         return
     _tap(device, screen, _NHAN_TAT_CA)
-    time.sleep(random.uniform(1.6, 2.2))
+    time.sleep(random.uniform(1.0, 1.5))
     _drain_xac_nhan_popups(device)
 
 
@@ -433,14 +433,14 @@ def do_alliance_gifts(device: Device) -> bool:
         return False
     screen = _ensure_alliance_button_visible(device, screen)
     _tap(device, screen, _LIEN_MINH)
-    time.sleep(random.uniform(2.2, 3.0))
+    time.sleep(random.uniform(1.0, 1.5))
     try:
         screen = device.snapshot()
     except Exception:
         log.exception("[việc vặt] snapshot trước Quà Tặng thất bại")
         return False
     _tap(device, screen, _QUA_TANG)
-    time.sleep(random.uniform(2.2, 3.0))
+    time.sleep(random.uniform(1.0, 1.5))
 
     try:
         screen = device.snapshot()
@@ -780,7 +780,7 @@ def do_alliance_tech(
         log.exception("[việc vặt] snapshot trước Công Nghệ thất bại")
         return _close_to_world(device)
     _tap(device, screen, _CONG_NGHE)
-    time.sleep(random.uniform(2.5, 3.5))
+    time.sleep(random.uniform(1.0, 1.5))
 
     # Bước 3: chọn ô có flag (fallback ô đầu) -> sleep cho panel chi tiết.
     try:
@@ -796,7 +796,7 @@ def do_alliance_tech(
             slot[0], slot[1],
         )
     _tap(device, screen, slot)
-    time.sleep(random.uniform(2.0, 3.0))
+    time.sleep(random.uniform(1.0, 1.5))
 
     # Bước 4: OCR "Cơ hội: N/20" -> tap TẶNG đúng N lần (capped).
     # Snapshot 1 lần: (a) OCR đọc Cơ hội, (b) có screen.shape cho
@@ -829,7 +829,7 @@ def do_alliance_tech(
         for i in range(n_tap):
             _tap(device, screen, _TANG_DONATE)
             log.info("[việc vặt] TẶNG %d/%d", i + 1, n_tap)
-            time.sleep(random.uniform(0.35, 0.9))
+            time.sleep(random.uniform(0.1, 1.5))
         log.info("[việc vặt] góp Công Nghệ xong: %d lần", n_tap)
 
     # Bước 5: X đóng panel chi tiết rồi BACK về world.
@@ -874,7 +874,7 @@ def do_alliance_territory(device: Device) -> bool:
         log.exception("[việc vặt] snapshot trước Lãnh Thổ thất bại")
         return _close_to_world(device)
     _tap_quick(device, screen, _LANH_THO)
-    time.sleep(random.uniform(1.2, 1.6))
+    time.sleep(random.uniform(1.0, 1.5))
 
     # Bước 3: tap NHẬN ở header. RoK có thể bung popup "QUÀ NHẬN ĐƯỢC"
     # khi thu RSS -> drain popup Xác nhận luôn (best-effort, không có
@@ -889,7 +889,7 @@ def do_alliance_territory(device: Device) -> bool:
     # KHÔNG gọi _drain_xac_nhan_popups: pixel-detect tại (46%, 76%) trùng
     # vị trí nút "XÂY DỰNG" trên fortress card -> false-positive sẽ tap
     # nhầm vào nó. Chỉ chờ animation xong rồi đóng panel.
-    time.sleep(random.uniform(0.8, 1.2))
+    time.sleep(random.uniform(0.8, 1.5))
 
     # Bước 4: KHÔNG tap X (toạ độ X trong panel territory khác với
     # gift/tech panel, dễ miss). Dùng BACK key qua _close_to_world để

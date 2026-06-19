@@ -153,8 +153,8 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         ),
     )
     p.add_argument(
-        "--control-mode", choices=["adb", "physical_mouse"], default=None,
-        help="Chế độ điều khiển giả lập: adb hoặc physical_mouse (chiếm chuột thật PC, mặc định lấy từ devices.yaml hoặc adb)",
+        "--control-mode", choices=["adb", "physical_mouse", "scrcpy"], default=None,
+        help="Chế độ điều khiển: adb, physical_mouse hoặc scrcpy (máy thật/ADB socket, mặc định lấy từ devices.yaml hoặc adb)",
     )
     p.add_argument(
         "--only-claim-vip", action="store_true",
@@ -181,7 +181,7 @@ def _build_getres_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument(
         "--control-mode",
-        choices=["adb", "physical_mouse"],
+        choices=["adb", "physical_mouse", "scrcpy"],
         default="physical_mouse",
         help="Chế độ điều khiển (mặc định: physical_mouse)",
     )
@@ -196,7 +196,7 @@ def _build_alliance_parser(sub: argparse._SubParsersAction) -> None:
     p.add_argument("serial", help="Serial ADB, ví dụ: 127.0.0.1:5555")
     p.add_argument(
         "--control-mode",
-        choices=["adb", "physical_mouse"],
+        choices=["adb", "physical_mouse", "scrcpy"],
         default="adb",
         help="Chế độ điều khiển (mặc định: adb)",
     )

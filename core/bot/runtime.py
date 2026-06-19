@@ -118,7 +118,9 @@ def _claim_vip(device: Device) -> None:
             pause(2.5)
 
         # 2. Click VIP với tọa độ ngẫu nhiên dựa trên vùng (151, 81) -> (236, 110)
-        vip_area = (151, 81, 236, 110)
+        # On real 2340x1080 phones the old area (151, 81)-(236, 110)
+        # opens the governor profile; the VIP badge is lower/right.
+        vip_area = (205, 100, 305, 145)
         center_x = (vip_area[0] + vip_area[2]) // 2
         center_y = (vip_area[1] + vip_area[3]) // 2
         vip_pos = (center_x + random.randint(-10, 10), center_y + random.randint(-10, 10))
@@ -141,8 +143,24 @@ def _claim_vip(device: Device) -> None:
         log.info("Kiểm tra nút nhận điểm VIP và rương VIP miễn phí hàng ngày...")
         screen = device.snapshot()
         if screen is not None:
-            has_point_nhan = ocr_text_in(screen, vip_point_region, ("nhan",))
-            has_free_nhan = ocr_text_in(screen, vip_free_region, ("nhan",))
+            vip_point_region_px = region_pct_to_px(screen, vip_point_region)
+            vip_free_region_px = region_pct_to_px(screen, vip_free_region)
+            log.info(
+                "Vung OCR chu NHAN VIP: diem=%s, ruong=%s",
+                vip_point_region_px,
+                vip_free_region_px,
+            )
+            save_debug_image(
+                screen,
+                device.serial,
+                subdir="vip_claims",
+                prefix="vip",
+                rects=[vip_point_region_px, vip_free_region_px],
+                label="OCR NHAN VIP",
+            )
+            nhan_needles = ("nhan", "nhn")
+            has_point_nhan = ocr_text_in(screen, vip_point_region, nhan_needles)
+            has_free_nhan = ocr_text_in(screen, vip_free_region, nhan_needles)
             
             if has_point_nhan or has_free_nhan:
                 log.info("Phát hiện chữ NHẬN (điểm VIP: %s, rương VIP: %s) -> tiến hành nhận cả hai chỗ", has_point_nhan, has_free_nhan)
@@ -165,7 +183,17 @@ def _claim_vip(device: Device) -> None:
                 log.info("Không phát hiện chữ NHẬN ở cả hai vùng điểm VIP và rương VIP -> bỏ qua nhận VIP")
 
         log.info("Thoát giao diện VIP về lại màn hình chính")
-        device.key("BACK")
+        closed_with_x = False
+        screen = device.snapshot()
+        if screen is not None:
+            h, w = screen.shape[:2]
+            vip_close_pos = (int(w * 0.79), int(h * 0.115))
+            log.info("Dong giao dien VIP bang nut X tai %s", vip_close_pos)
+            device.tap(*vip_close_pos)
+            pause(0.8)
+            closed_with_x = True
+        if not closed_with_x:
+            device.key("BACK")
         pause(1.5)
         log.info("=== Hoàn thành nhận VIP ===")
     except Exception as e:
@@ -245,7 +273,6 @@ def _run_vip_and_chores_now(device: Device) -> None:
 
 
 def _handle_logo_18_check(device: Device) -> None:
-    logo_region = (2159, 916, 2316, 1041)  # vùng quét tìm logo 18+
     # Vùng click ngẫu nhiên khi phát hiện logo 18+
     click_rect = (
         min(1319, 1071),  # x_left  = 1071
@@ -286,6 +313,13 @@ def _handle_logo_18_check(device: Device) -> None:
         else:
             stable_world_count = 0
 
+        h, w = screen.shape[:2]
+        logo_region = (
+            int(w * 0.88),
+            int(h * 0.80),
+            int(w * 0.99),
+            int(h * 0.99),
+        )
         try:
             match_pos = device.find_template_in("logo_18.png", screen, threshold=0.70, region=logo_region)
         except Exception as err:
@@ -310,7 +344,14 @@ def _handle_logo_18_check(device: Device) -> None:
             )
             device.tap(tx, ty)
         else:
-            log.info("Không phát hiện logo 18+ trong vùng coords='2159,916,2316,1041' (lần %d)", attempt + 1)
+            log.info(
+                "Không phát hiện logo 18+ trong vùng coords='%d,%d,%d,%d' (lần %d)",
+                logo_region[0],
+                logo_region[1],
+                logo_region[2],
+                logo_region[3],
+                attempt + 1,
+            )
 
         pause(5.0)
 

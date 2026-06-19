@@ -20,7 +20,7 @@ defaults:
   max_slots: 4
   skip_level_adjust: false
   turn_wait_min: 60
-  control_mode: adb        # adb (mặc định) hoặc physical_mouse (chiếm chuột thật PC)
+  control_mode: scrcpy    # scrcpy (máy thật/ADB nhanh), adb hoặc physical_mouse (Bluestacks)
   save_debug_images: false             # Tự động chụp và vẽ đường đi của chuột hoặc điểm bấm (chỉ bật khi debug, mặc định tắt)
   enable_vip_claim: true               # Bật/tắt nhận VIP tự động xen kẽ khi chạy farm (chọn ngẫu nhiên thứ tự chạy trước/sau khi farm)
   auto_close_bluestack: false          # Tự động tắt máy ảo Bluestacks sau khi chạy xong bot (mặc định tắt)
@@ -41,10 +41,16 @@ defaults:
 
 # Danh sách thiết bị.
 # Nếu bạn không điền gì ở đây (hoặc xóa/comment block này), bot sẽ tự động quét
-# file cấu hình bluestacks.conf và kết nối tới toàn bộ máy ảo đang có trên Bluestacks
-# với tên được đặt theo tên hiển thị trên Bluestacks (ví dụ: 1, 2, 3, 4...).
+# `adb devices` trước để lấy máy thật đang cắm USB. Nếu không thấy máy thật,
+# bot mới fallback sang file cấu hình bluestacks.conf và kết nối tới toàn bộ
+# máy ảo đang có trên Bluestacks.
 #
-# Ví dụ cấu hình tay (chỉ điền nếu muốn chạy chọn lọc hoặc cổng khác):
+# Ví dụ cấu hình máy thật (lấy serial bằng `python main.py devices` hoặc `adb devices`):
+# devices:
+#   - name: phone-real
+#     serial: YOUR_USB_DEVICE_SERIAL
+#
+# Ví dụ cấu hình Bluestacks (chỉ điền nếu muốn chạy chọn lọc hoặc cổng khác):
 # devices:
 #   - name: phone-1
 #     serial: 127.0.0.1:5555

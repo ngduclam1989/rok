@@ -165,6 +165,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
         try:
             bot_engine.run(device, max_iterations=args.max_iter)
         finally:
+            device.close()
             if is_bluestacks:
                 if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):
                     logging.info("B5: Kết thúc bot. Tiến hành tắt Bluestacks...")

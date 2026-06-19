@@ -3,43 +3,54 @@ title Build RoKBot EXE
 chcp 65001 > nul
 
 echo ======================================================
-echo           ROK AUTO FARM BOT - EXE COMPILER (ROOT)
+echo           ROK AUTO FARM BOT - EXE COMPILER
 echo ======================================================
 echo.
 
-:: 1. Kiểm tra thư mục môi trường ảo
+:: 1. Check virtual environment
 if not exist .venv (
-    echo [ERROR] Không tìm thấy thư mục .venv! Hãy chạy setup_and_run.bat trước để cài đặt môi trường.
+    echo [ERROR] .venv not found.
+    echo [INFO] Run setup_env_py311.bat first.
     pause
     exit /b 1
 )
 
-:: 2. Đảm bảo PyInstaller đã được cài đặt trong .venv
-echo [INFO] Kiểm tra PyInstaller trong môi trường ảo...
+:: 2. Check Python version.
+echo [INFO] Checking Python version in .venv...
+.venv\Scripts\python -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if %errorlevel% neq 0 (
+    echo [ERROR] .venv is not Python 3.12.
+    echo [INFO] Run setup_env.bat to recreate .venv.
+    pause
+    exit /b 1
+)
+
+:: 3. Ensure PyInstaller is installed
+echo [INFO] Checking PyInstaller...
 .venv\Scripts\pip show pyinstaller >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [INFO] Đang cài đặt PyInstaller vào môi trường ảo...
+    echo [INFO] Installing PyInstaller...
     .venv\Scripts\python -m pip install pyinstaller
     if %errorlevel% neq 0 (
-        echo [ERROR] Không thể cài đặt PyInstaller!
+        echo [ERROR] Failed to install PyInstaller.
         pause
         exit /b 1
     )
 )
 
-:: 3. Chạy PyInstaller để build EXE trực tiếp tại thư mục gốc (ngang hàng main.py)
-echo [INFO] Bắt đầu build EXE trực tiếp tại thư mục gốc...
-echo Quá trình này có thể mất vài phút vì các thư viện Paddle và OpenCV khá nặng...
+:: 4. Build EXE
+echo [INFO] Building RoKBot.exe...
+echo This may take a few minutes because Paddle and OpenCV are heavy.
 .venv\Scripts\pyinstaller --clean --distpath . RoKBot.spec
 if %errorlevel% neq 0 (
-    echo [ERROR] Build EXE thất bại!
+    echo [ERROR] Build failed.
     pause
     exit /b 1
 )
 
-:: 4. Dọn dẹp thư mục tạm build và dist (nếu có) để giữ thư mục gốc sạch sẽ
+:: 5. Clean temporary build folders
 echo.
-echo [INFO] Đang dọn dẹp các thư mục tạm thời để tránh rác...
+echo [INFO] Cleaning temporary folders...
 if exist build (
     rd /s /q build
 )
@@ -48,15 +59,16 @@ if exist dist (
 )
 
 echo.
-echo [SUCCESS] Đã tạo thành công RoKBot.exe trực tiếp tại thư mục gốc!
+echo [SUCCESS] RoKBot.exe created in the project root.
 echo.
-echo [INFO] Để chạy bot ở máy khác, bạn chỉ cần copy các mục sau sang máy mới:
-echo        - Thư mục: assets/
-echo        - Thư mục: scenarios/
-echo        - Thư mục: data/
-echo        - File chạy: RoKBot.exe (nằm ở thư mục gốc)
-echo        - File cấu hình: devices.yaml và account.txt
+echo To run on another machine, copy:
+echo   - assets/
+echo   - scenarios/
+echo   - data/
+echo   - RoKBot.exe
+echo   - devices.yaml
+echo   - account.txt
 echo.
-echo        * LƯU Ý: Không cần copy .venv, build, dist, hoặc bất kỳ file nào khác! *
+echo Do not copy .venv, build, or dist.
 echo.
 pause

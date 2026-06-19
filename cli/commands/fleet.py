@@ -71,6 +71,7 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                 wait_if_paused()
                 if should_stop():
                     break
+                device = None
 
                 sys.stdout.write(
                     f"[{index + 1}/{len(ordered_members)}] Đang kiểm tra thiết bị: {c.name} ({c.serial})...\n"
@@ -140,6 +141,8 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     except Exception as e:
                         logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
                 finally:
+                    if device is not None:
+                        device.close()
                     # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và đóng Bluestacks nếu cấu hình yêu cầu
                     if is_bluestacks:
                         if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):

@@ -1,9 +1,32 @@
-airtest>=1.4.3
+#
+# Python environment:
+#   - Requires-Python: >=3.12,<3.13
+#   - Python 3.12 is supported for the main bot and ADB fallback.
+#   - Recommended setup: setup_env.bat --clean
+#   - Manual setup:
+#       py -3.12 -m venv .venv
+#       .venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+#       .venv\Scripts\python.exe -m pip install --use-deprecated=legacy-resolver -r requirements.txt
+#   - Do not copy .venv between machines; recreate it with setup_env.bat --clean.
+#   - scrcpy-client is intentionally commented out below:
+#     it pins PyAV 9.2, which currently has no usable Windows wheel and
+#     requires local FFmpeg development libraries to build.
+#
+airtest==1.4.3
 pyyaml>=6.0.2
-opencv-python>=4.11.0.86
-numpy>=1.26.4
-paddleocr>=3.0.0
-paddlepaddle>=3.0.0
+opencv-python==4.11.0.86
+numpy==1.26.4
+paddleocr==3.6.0
+paddlepaddle==3.3.1
 pillow>=10.0.0
 psutil>=5.9.0
 pywin32>=306; platform_system == "Windows"
+
+#
+# Optional/experimental scrcpy Python client.
+# Uncomment both lines only if you want to test native scrcpy control.
+# On Windows this may fail until compatible PyAV wheels exist or FFmpeg
+# development libraries are installed locally.
+#
+# Cython<3
+# scrcpy-client==0.4.1

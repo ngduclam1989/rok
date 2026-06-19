@@ -264,6 +264,35 @@ def get_bluestacks_devices_from_conf() -> list[dict[str, str]]:
     return devices_list
 
 
+def get_connected_adb_devices() -> list[dict[str, str]]:
+    """Return currently connected ADB devices, including real USB phones."""
+    try:
+        import subprocess
+        from airtest.core.android.adb import ADB
+
+        adb_path = ADB().adb_path
+        result = subprocess.run(
+            [adb_path, "devices"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        devices_list = []
+        for line in result.stdout.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                serial = parts[0].strip()
+                if serial:
+                    devices_list.append({
+                        "name": serial,
+                        "serial": serial,
+                    })
+        return devices_list
+    except Exception as e:
+        log.debug("Không thể tự quét ADB devices: %s", e)
+        return []
+
+
 def load_global_settings(devices_file: Path) -> None:
     """Đọc các cài đặt toàn cục từ devices.yaml và ghi đè vào core.bot.config."""
     if not devices_file.exists():
@@ -344,8 +373,11 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
 
     devices_data = raw.get("devices")
     if not devices_data:
-        log.info("[AutoDetect] Không tìm thấy danh sách 'devices' trong cấu hình. Tự động lấy danh sách từ Bluestacks...")
-        devices_data = get_bluestacks_devices_from_conf()
+        log.info("[AutoDetect] Không tìm thấy danh sách 'devices' trong cấu hình. Tự động quét ADB devices...")
+        devices_data = get_connected_adb_devices()
+        if not devices_data:
+            log.info("[AutoDetect] Không thấy thiết bị ADB thật. Tự động lấy danh sách từ Bluestacks...")
+            devices_data = get_bluestacks_devices_from_conf()
 
     corrections = {}
     out: list[BotDeviceConfig] = []
@@ -459,7 +491,9 @@ def first_device_serial(devices_file: Path) -> str | None:
     
     devices = raw.get("devices")
     if not devices:
-        devices = get_bluestacks_devices_from_conf()
+        devices = get_connected_adb_devices()
+        if not devices:
+            devices = get_bluestacks_devices_from_conf()
 
     if not devices:
         return None

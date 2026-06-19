@@ -43,6 +43,8 @@ class Device:
         self.control_mode = control_mode
         self._hwnd = None
         self._top_hwnd = None
+        self._scrcpy_client = None
+        self._scrcpy_available = False
 
         if ":" in serial:
             try:
@@ -67,6 +69,46 @@ class Device:
                 log.info("[%s] Đã tìm thấy HWND Bluestacks: %s (cha: %s)", serial, self._hwnd, self._top_hwnd)
             else:
                 log.error("[%s] KHÔNG tìm thấy HWND Bluestacks cho thiết bị này. Sẽ dùng ADB làm dự phòng.", serial)
+
+        if control_mode == "scrcpy":
+            self._start_scrcpy_client()
+
+    def _start_scrcpy_client(self) -> None:
+        """Start scrcpy video/control sockets for low-latency capture and input."""
+        try:
+            import scrcpy
+
+            self._scrcpy_client = scrcpy.Client(
+                device=self.serial,
+                max_fps=15,
+                bitrate=4_000_000,
+                stay_awake=True,
+            )
+            self._scrcpy_client.start(threaded=True)
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                if self._scrcpy_client.last_frame is not None:
+                    self._scrcpy_available = True
+                    break
+                time.sleep(0.05)
+            if self._scrcpy_available:
+                log.info("[%s] Đã kích hoạt scrcpy control + video stream", self.serial)
+            else:
+                log.warning(
+                    "[%s] scrcpy đã khởi động nhưng chưa có frame; tạm dùng ADB snapshot cho đến khi stream sẵn sàng",
+                    self.serial,
+                )
+        except Exception as e:
+            self._scrcpy_client = None
+            self._scrcpy_available = False
+            log.error(
+                "[%s] Không thể khởi tạo scrcpy client: %s. Sẽ dùng ADB dự phòng.",
+                self.serial,
+                e,
+            )
+
+    def _scrcpy_ready(self) -> bool:
+        return self.control_mode == "scrcpy" and self._scrcpy_client is not None
 
     def _adb_shell(self, *args: str) -> str:
         cmd = [self._adb_path, "-s", self.serial, "shell", *args]
@@ -109,6 +151,12 @@ class Device:
         always returns the live display orientation, which keeps our
         snapshot / OCR / tap coords in a single coordinate system.
         """
+        if self._scrcpy_ready():
+            frame = self._scrcpy_client.last_frame
+            if frame is not None:
+                self._scrcpy_available = True
+                return frame.copy()
+
         proc = subprocess.run(  # noqa: S603 - airtest-resolved adb
             [
                 self._adb_path, "-s", self.serial,
@@ -329,6 +377,23 @@ class Device:
 
     def tap(self, x: int, y: int) -> None:
         press_x, press_y = self._resolve_press_coords(x, y)
+        if self._scrcpy_ready():
+            try:
+                import scrcpy
+
+                self._scrcpy_client.control.touch(
+                    int(press_x),
+                    int(press_y),
+                    scrcpy.ACTION_DOWN,
+                )
+                self._scrcpy_client.control.touch(
+                    int(press_x),
+                    int(press_y),
+                    scrcpy.ACTION_UP,
+                )
+                return
+            except Exception as e:
+                log.warning("[%s] scrcpy tap lỗi (%s), fallback ADB", self.serial, e)
         if self.control_mode == "physical_mouse" and self._hwnd:
             self._physical_click(press_x, press_y)
         else:
@@ -344,6 +409,24 @@ class Device:
             press_y,
             duration_ms,
         )
+        if self._scrcpy_ready():
+            try:
+                import scrcpy
+
+                self._scrcpy_client.control.touch(
+                    int(press_x),
+                    int(press_y),
+                    scrcpy.ACTION_DOWN,
+                )
+                time.sleep(max(0, duration_ms) / 1000.0)
+                self._scrcpy_client.control.touch(
+                    int(press_x),
+                    int(press_y),
+                    scrcpy.ACTION_UP,
+                )
+                return
+            except Exception as e:
+                log.warning("[%s] scrcpy long_tap lỗi (%s), fallback ADB", self.serial, e)
         if self.control_mode == "physical_mouse" and self._hwnd:
             self._physical_long_click(press_x, press_y, duration_ms)
         else:
@@ -425,6 +508,18 @@ class Device:
             self.serial, x1, y1, x2, y2, duration_ms,
         )
         self.save_swipe_path_image(x1, y1, x2, y2)
+        if self._scrcpy_ready():
+            try:
+                self._scrcpy_client.control.swipe(
+                    int(x1),
+                    int(y1),
+                    int(x2),
+                    int(y2),
+                    move_steps_delay=max(0.001, duration_ms / 1000.0 / 60.0),
+                )
+                return
+            except Exception as e:
+                log.warning("[%s] scrcpy swipe lỗi (%s), fallback ADB", self.serial, e)
         if self.control_mode == "physical_mouse" and self._hwnd:
             self._physical_swipe(x1, y1, x2, y2, duration_ms)
         else:
@@ -443,6 +538,27 @@ class Device:
                 log.warning("[%s] Nút BACK bị chặn do đang trong thời gian khoá (còn %.0fs)", self.serial, remaining)
                 return
         log.debug("[%s] key %s", self.serial, name)
+        if self._scrcpy_ready():
+            keycodes = {
+                "BACK": 4,
+                "HOME": 3,
+                "MENU": 82,
+                "POWER": 26,
+                "ENTER": 66,
+            }
+            key_name = name.upper()
+            keycode = keycodes.get(key_name)
+            if keycode is None and key_name.startswith("KEYCODE_"):
+                keycode = keycodes.get(key_name.removeprefix("KEYCODE_"))
+            if keycode is not None:
+                try:
+                    import scrcpy
+
+                    self._scrcpy_client.control.keycode(keycode, scrcpy.ACTION_DOWN)
+                    self._scrcpy_client.control.keycode(keycode, scrcpy.ACTION_UP)
+                    return
+                except Exception as e:
+                    log.warning("[%s] scrcpy key lỗi (%s), fallback ADB", self.serial, e)
         self._adb_shell("input", "keyevent", name.upper())
 
     def keep_awake(
@@ -617,9 +733,21 @@ class Device:
 
     def shutdown(self) -> None:
         """Tắt/đóng ứng dụng game trên thiết bị."""
+        self.close()
         try:
             self._adb_shell("am", "force-stop", "com.rok.gp.vn")
             log.info("[%s] Đã đóng ứng dụng game com.rok.gp.vn", self.serial)
         except Exception as e:
             log.error("Không thể đóng game: %s", e)
+
+    def close(self) -> None:
+        """Release local resources without closing the Android app."""
+        if self._scrcpy_client is not None:
+            try:
+                self._scrcpy_client.stop()
+            except Exception:
+                log.debug("[%s] Không thể stop scrcpy client", self.serial, exc_info=True)
+            finally:
+                self._scrcpy_client = None
+                self._scrcpy_available = False
 

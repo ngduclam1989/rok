@@ -17,5 +17,8 @@ def cmd_getres(args: argparse.Namespace) -> int:
         return 1
 
     device = Device(serial, TEMPLATES_DIR, control_mode=args.control_mode)
-    ok = collect_city_resources(device, max_resources=args.max_resources)
+    try:
+        ok = collect_city_resources(device, max_resources=args.max_resources)
+    finally:
+        device.close()
     return 0 if ok else 1

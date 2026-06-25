@@ -672,16 +672,14 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
             pause(random.uniform(8.0, 15.0))
 
     if account_result == "wrapped":
-        log.info("Đã quay lại account đầu tiên. Chuyển về char 1 rồi đóng app.")
+        log.info("Đã quay lại account đầu tiên. Tiến hành đóng app.")
         try:
             pause(5.0)
             _handle_logo_18_check(device)
-            log.info("Chờ thêm 10s cho game load account đầu tiên trước khi chuyển về char 1...")
+            log.info("Chờ thêm 10s cho game load account đầu tiên trước khi đóng app...")
             pause(10.0)
-            if not handle_switch_character(device):
-                log.warning("Không chuyển được về char 1 trước khi đóng app; vẫn đóng app.")
         except Exception:
-            log.exception("Lỗi khi chuyển về char 1 trước khi đóng app")
+            log.exception("Lỗi khi chờ game load account đầu tiên trước khi đóng app")
         try:
             device.shutdown()
         except Exception:

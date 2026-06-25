@@ -1,56 +1,55 @@
-# Cấu hình thiết bị.
-# Lấy serial bằng:  python main.py devices
-# Hoặc:             adb devices
-#
-# CHẠY:
-#   python main.py bot                 -> bot 1 máy (chế độ hỏi)
-#   python main.py fleet               -> bot SONG SONG cho TẤT CẢ máy bên dưới
-#                                         (mỗi máy 1 subprocess, log riêng
-#                                          ở logs/<serial>.log)
-#
-# DỪNG:
-#   Ctrl+C ở terminal fleet            -> dừng tất cả (graceful, tối đa 30s)
-#   tạo file STOP_<serial>.flag        -> dừng riêng 1 máy
-
-# Cấu hình mặc định, áp cho mọi máy không override trong block 'bot:'.
 defaults:
-  # resource: wood           # barb / corn / wood / stone / gold / cycle
-  resource: cycle          # Xoay vòng tài nguyên (1 ngô, 1 đá, 1 vàng, 2 gỗ)
+  resource: cycle
   target_level: 5
   max_slots: 4
-  skip_level_adjust: false
+  skip_level_adjust: true
   turn_wait_min: 60
-  control_mode: adb        # adb (mặc định) hoặc physical_mouse (chiếm chuột thật PC)
-  save_debug_images: false             # Tự động chụp và vẽ đường đi của chuột hoặc điểm bấm (chỉ bật khi debug, mặc định tắt)
-  enable_vip_claim: true               # Bật/tắt nhận VIP tự động xen kẽ khi chạy farm (chọn ngẫu nhiên thứ tự chạy trước/sau khi farm)
-  auto_close_bluestack: false          # Tự động tắt máy ảo Bluestacks sau khi chạy xong bot (mặc định tắt)
-  
-  # Cấu hình chu kỳ chờ chạy lại bot (B6):
-  cycle_wait_min: 0                  # Thời gian chờ cơ bản giữa các lượt chạy (phút)
-  cycle_wait_variance_min: 10          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
-
-
-
-  # Cấu hình thời gian chờ:
-  delay_after_popup_min: 5     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
-  delay_after_popup_max: 15    # Thời gian chờ tối đa sau khi tắt popup (giây)
-  delay_after_dispatch_min: 10 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
-  delay_after_dispatch_max: 20 # Thời gian chờ tối đa sau khi gửi quân (giây)
-  enable_city_world_toggle: true        # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
-  city_world_toggle_probability: 0.2    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)
-
-# Danh sách thiết bị.
-# Nếu bạn không điền gì ở đây (hoặc xóa/comment block này), bot sẽ tự động quét
-# file cấu hình bluestacks.conf và kết nối tới toàn bộ máy ảo đang có trên Bluestacks
-# với tên được đặt theo tên hiển thị trên Bluestacks (ví dụ: 1, 2, 3, 4...).
-#
-# Ví dụ cấu hình tay (chỉ điền nếu muốn chạy chọn lọc hoặc cổng khác):
-# devices:
-#   - name: phone-1
-#     serial: 127.0.0.1:5555
-#   - name: phone-2
-#     serial: 127.0.0.1:5615
-#   - name: phone-3
-#     serial: 127.0.0.1:5625
-#   - name: phone-4
-#     serial: 127.0.0.1:5635
+  control_mode: adb
+  save_debug_images: false
+  enable_vip_claim: true
+  auto_close_bluestack: true
+  cycle_wait_min: 0
+  cycle_wait_variance_min: 10
+  delay_after_popup_min: 5
+  delay_after_popup_max: 15
+  delay_after_dispatch_min: 10
+  delay_after_dispatch_max: 20
+  enable_city_world_toggle: true
+  city_world_toggle_probability: 0.2
+devices:
+- name: '1'
+  serial: 127.0.0.1:5556
+  bot:
+    resource: cycle
+    target_level: 5
+    max_slots: 4
+    turn_wait_min: 60
+    control_mode: adb
+    skip_level_adjust: true
+- name: '2'
+  serial: 127.0.0.1:5615
+  bot:
+    resource: cycle
+    target_level: 5
+    max_slots: 4
+    turn_wait_min: 60
+    control_mode: adb
+    skip_level_adjust: true
+- name: '3'
+  serial: 127.0.0.1:5625
+  bot:
+    resource: cycle
+    target_level: 5
+    max_slots: 4
+    turn_wait_min: 60
+    control_mode: adb
+    skip_level_adjust: true
+- name: '4'
+  serial: 127.0.0.1:5635
+  bot:
+    resource: cycle
+    target_level: 5
+    max_slots: 4
+    turn_wait_min: 60
+    control_mode: adb
+    skip_level_adjust: true

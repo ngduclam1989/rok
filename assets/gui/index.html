@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RoK Bot Control Panel</title>
+    <!-- Modern web typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-icon">👑</div>
+                <div class="brand">
+                    <h2>RoK Bot</h2>
+                    <span class="badge">v2.1 Premium</span>
+                </div>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="dashboard">
+                    <span class="icon">📊</span> Bảng Điều Khiển
+                </button>
+                <button class="nav-item" data-tab="settings">
+                    <span class="icon">⚙️</span> Cấu Hình Chung
+                </button>
+                <button class="nav-item" data-tab="devices">
+                    <span class="icon">📱</span> Quản Lý Máy
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="bot-status-widget">
+                    <div class="status-indicator" id="sidebar-status-indicator"></div>
+                    <span id="sidebar-status-text">Đang dừng</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- TAB 1: DASHBOARD -->
+            <section id="tab-dashboard" class="tab-content active">
+                <header class="tab-header">
+                    <h1>Bảng Điều Khiển Bot</h1>
+                    <p class="subtitle">Khởi động, dừng và theo dõi nhật ký hoạt động thời gian thực.</p>
+                </header>
+
+                <div class="dashboard-grid">
+                    <div class="card control-card">
+                        <h3>Trạng thái & Điều khiển</h3>
+                        <div class="control-actions">
+                            <div class="mode-select">
+                                <label for="run-mode">Chế độ chạy:</label>
+                                <select id="run-mode" class="input-select">
+                                    <option value="sequential">Chạy TUẦN TỰ (Sequential)</option>
+                                    <option value="parallel">Chạy SONG SONG (Parallel)</option>
+                                </select>
+                            </div>
+                            <div class="button-group">
+                                <button id="btn-start" class="btn btn-primary">⚡ Khởi Chạy Bot</button>
+                                <button id="btn-stop" class="btn btn-danger" disabled>🛑 Dừng Bot</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card log-card">
+                        <div class="card-header">
+                            <h3>Nhật ký hoạt động (Logs)</h3>
+                            <button id="btn-clear-logs" class="btn-text">Clear</button>
+                        </div>
+                        <div class="log-terminal" id="log-terminal">
+                            <div class="log-line system">Hệ thống đã sẵn sàng. Vui lòng bấm Khởi Chạy Bot...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 2: GLOBAL SETTINGS -->
+            <section id="tab-settings" class="tab-content">
+                <header class="tab-header">
+                    <h1>Cấu Hình Hệ Thống</h1>
+                    <p class="subtitle">Thiết lập các cấu hình mặc định, thời gian chờ và chế độ chạy của bot.</p>
+                </header>
+
+                <div class="card form-card">
+                    <form id="global-config-form">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="cycle_wait_min">Chu kỳ chờ chạy lại (phút):</label>
+                                <input type="number" id="cycle_wait_min" name="cycle_wait_min" class="input-field" min="0" required>
+                                <span class="help-text">Đặt = 0 để bot tự tắt sau 1 lượt chạy.</span>
+                            </div>
+                            <div class="form-group">
+                                <label for="cycle_wait_variance_min">Độ lệch chu kỳ (+/- phút):</label>
+                                <input type="number" id="cycle_wait_variance_min" name="cycle_wait_variance_min" class="input-field" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="delay_after_popup_min">Thời gian chờ sau popup tối thiểu (giây):</label>
+                                <input type="number" id="delay_after_popup_min" name="delay_after_popup_min" class="input-field" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="delay_after_popup_max">Thời gian chờ sau popup tối đa (giây):</label>
+                                <input type="number" id="delay_after_popup_max" name="delay_after_popup_max" class="input-field" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="delay_after_dispatch_min">Thời gian chờ sau gửi quân tối thiểu (giây):</label>
+                                <input type="number" id="delay_after_dispatch_min" name="delay_after_dispatch_min" class="input-field" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="delay_after_dispatch_max">Thời gian chờ sau gửi quân tối đa (giây):</label>
+                                <input type="number" id="delay_after_dispatch_max" name="delay_after_dispatch_max" class="input-field" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="city_world_toggle_probability">Tỉ lệ City/World toggle (0.0 - 1.0):</label>
+                                <input type="number" id="city_world_toggle_probability" name="city_world_toggle_probability" class="input-field" step="0.1" min="0" max="1" required>
+                            </div>
+                        </div>
+
+                        <div class="form-switches">
+                            <label class="switch-container">
+                                <input type="checkbox" id="enable_city_world_toggle" name="enable_city_world_toggle">
+                                <span class="switch-slider"></span>
+                                <span class="switch-label">Bật City/World toggle (Tránh kẹt camera)</span>
+                            </label>
+                            <label class="switch-container">
+                                <input type="checkbox" id="enable_vip_claim" name="enable_vip_claim">
+                                <span class="switch-slider"></span>
+                                <span class="switch-label">Tự động nhận quà VIP hàng ngày</span>
+                            </label>
+                            <label class="switch-container">
+                                <input type="checkbox" id="auto_close_bluestack" name="auto_close_bluestack">
+                                <span class="switch-slider"></span>
+                                <span class="switch-label">Tự động tắt Bluestacks khi chạy xong</span>
+                            </label>
+                            <label class="switch-container">
+                                <input type="checkbox" id="save_debug_images" name="save_debug_images">
+                                <span class="switch-slider"></span>
+                                <span class="switch-label">Lưu ảnh Debug (Bật khi lỗi)</span>
+                            </label>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-success">💾 Lưu Cấu Hình</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- TAB 3: DEVICES -->
+            <section id="tab-devices" class="tab-content">
+                <header class="tab-header flex-header">
+                    <div>
+                        <h1>Quản Lý Máy ảo & Thiết bị</h1>
+                        <p class="subtitle">Cấu hình danh sách thiết bị ADB và cài đặt tài nguyên cho từng máy.</p>
+                    </div>
+                    <div class="header-actions">
+                        <button id="btn-scan-bs" class="btn btn-secondary">🔍 Quét Bluestacks</button>
+                        <button id="btn-add-device" class="btn btn-primary">➕ Thêm Thiết Bị</button>
+                    </div>
+                </header>
+
+                <div class="devices-grid" id="devices-container">
+                    <!-- Dynamic rendering cards here -->
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Add/Edit Device Modal -->
+    <div id="device-modal" class="modal">
+        <div class="modal-content card">
+            <h3 id="modal-title">Cấu hình Thiết bị</h3>
+            <form id="device-form">
+                <input type="hidden" id="device-index">
+                <div class="form-group">
+                    <label for="dev-name">Tên thiết bị:</label>
+                    <input type="text" id="dev-name" class="input-field" required placeholder="Ví dụ: Bluestacks-1">
+                </div>
+                <div class="form-group">
+                    <label for="dev-serial">ADB Serial:</label>
+                    <input type="text" id="dev-serial" class="input-field" required placeholder="Ví dụ: 127.0.0.1:5555">
+                </div>
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="dev-resource">Tài nguyên:</label>
+                        <select id="dev-resource" class="input-select">
+                            <option value="cycle">cycle (Vòng lặp)</option>
+                            <option value="wood">wood (Gỗ)</option>
+                            <option value="corn">corn (Lúa/Ngô)</option>
+                            <option value="stone">stone (Đá)</option>
+                            <option value="gold">gold (Vàng)</option>
+                            <option value="barb">barb (Người Man Rợ)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="dev-target-level">Cấp slider đích:</label>
+                        <input type="number" id="dev-target-level" class="input-field" min="1" max="25" required>
+                    </div>
+                </div>
+                <div class="form-grid-2">
+                    <div class="form-group">
+                        <label for="dev-max-slots">Số slot gửi quân tối đa:</label>
+                        <input type="number" id="dev-max-slots" class="input-field" min="1" max="5" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="dev-turn-wait">Thời gian chờ/máy (phút):</label>
+                        <input type="number" id="dev-turn-wait" class="input-field" min="1" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="dev-control-mode">Chế độ điều khiển:</label>
+                    <select id="dev-control-mode" class="input-select">
+                        <option value="adb">ADB (Điều khiển ngầm)</option>
+                        <option value="physical_mouse">Physical Mouse (Chiếm chuột thật PC)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="switch-container">
+                        <input type="checkbox" id="dev-skip-adjust">
+                        <span class="switch-slider"></span>
+                        <span class="switch-label">Bỏ qua chỉnh cấp slider (skip_level_adjust)</span>
+                    </label>
+                </div>
+
+                <div class="modal-buttons">
+                    <button type="button" id="btn-close-modal" class="btn btn-secondary">Đóng</button>
+                    <button type="submit" class="btn btn-success">Lưu lại</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">Thành công!</div>
+    <script src="/app.js"></script>
+</body>
+</html>

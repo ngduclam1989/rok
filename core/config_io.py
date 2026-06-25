@@ -476,3 +476,20 @@ def first_device_serial(devices_file: Path) -> str | None:
         save_corrected_devices_yaml(devices_file, {serial_str: new_serial})
         
     return new_serial
+
+
+def save_bot_fleet_config(devices_file: Path, config_data: dict) -> None:
+    """Ghi cấu hình mới vào devices.yaml."""
+    try:
+        content = yaml.safe_dump(
+            config_data,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        devices_file.write_text(content, encoding="utf-8")
+        log.info("Đã lưu cấu hình mới vào %s", devices_file.name)
+    except Exception as e:
+        log.error("Không thể lưu cấu hình mới: %s", e)
+        raise e
+

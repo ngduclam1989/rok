@@ -18,6 +18,7 @@ from .commands.fleet import cmd_fleet
 from .commands.getres import cmd_getres
 from .commands.run import cmd_run
 from .commands.status import cmd_status
+from .commands.gui import cmd_gui
 from .logging_setup import setup_logging
 from .paths import DEFAULT_DB
 
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     _build_alliance_parser(sub)
     _build_fleet_parser(sub)
     _build_detect_parser(sub)
+    _build_gui_parser(sub)
 
     return parser
 
@@ -226,6 +228,13 @@ def _build_detect_parser(sub: argparse._SubParsersAction) -> None:
         "--serial", help="Serial thiết bị (mặc định: đầu devices.yaml)",
     )
     p.set_defaults(func=cmd_detect)
+
+
+def _build_gui_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "gui", help="Khởi chạy giao diện cấu hình trực quan trên trình duyệt",
+    )
+    p.set_defaults(func=cmd_gui)
 
 
 def run(argv: list[str] | None = None) -> int:

@@ -630,6 +630,36 @@ def _find_tech_slot(screen) -> tuple[float, float] | None:
         if max_val >= 0.75:
             match_x = crop_x1 + max_loc[0]
             match_y = crop_y1 + max_loc[1]
+            # Current alliance-tech UI is a tree, not the old 3x2 grid. The
+            # officer-recommend ribbon sits above/right of the actual tech
+            # icon. Tap the icon directly relative to the matched ribbon;
+            # mapping to _TECH_SLOTS can land on an empty connector line.
+            target_x = match_x - 65 + random.uniform(-18, 18)
+            target_y = match_y + 90 + random.uniform(-18, 18)
+            target_x = max(0.0, min(2399.0, target_x))
+            target_y = max(0.0, min(1079.0, target_y))
+            best_slot = (target_x / 2400.0 * 100.0, target_y / 1080.0 * 100.0)
+
+            save_debug_image(
+                screen_ref, 'tech',
+                subdir="", prefix="tech_recommend_found",
+                clicks=[(int(target_x), int(target_y))],
+                rects=[(
+                    max(0, int(target_x) - 60),
+                    max(0, int(target_y) - 60),
+                    min(2399, int(target_x) + 60),
+                    min(1079, int(target_y) + 60),
+                )],
+                label="Tech Recommend DirectTap",
+            )
+
+            log.info(
+                "[việc vặt] Đã tìm thấy cờ đề xuất bằng MatchTemplate tại (%d, %d), conf: %.2f. "
+                "Tap trực tiếp icon tại (%.1f, %.1f) px (%.2f%%, %.2f%%)",
+                match_x, match_y, max_val, target_x, target_y,
+                best_slot[0], best_slot[1],
+            )
+            return best_slot
             
             # Khôi phục tọa độ tâm ô kỹ năng (băng rôn lệch dx=-144, dy=-118 so với tâm ô)
             detected_cx = match_x + 144

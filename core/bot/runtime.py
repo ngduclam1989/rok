@@ -36,6 +36,7 @@ from .handlers import (
     handle_unknown,
     handle_world,
     handle_switch_account,
+    handle_switch_character,
     reset_slider_state,
 )
 from .readers import read_march_panel_times, read_slot_badge
@@ -627,33 +628,87 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
     )
 
 
-def _handle_queue_full(device: Device, switched_account: bool) -> bool:
-    """Xử lý khi tài khoản hoàn thành mọi chu trình: chuyển acc hoặc tắt giả lập.
+def _handle_queue_full(device: Device, current_character: int) -> str:
+    """Xử lý khi nhân vật hoàn thành mọi chu trình.
 
-    Trả về True nếu đổi acc thành công để tiếp tục chạy, False nếu dừng bot và tắt giả lập.
+    Returns:
+        "character" nếu đã chuyển sang char 2,
+        "account" nếu đã chuyển sang account kế tiếp,
+        "retry" nếu chuyển account lỗi tạm thời và cần thử lại,
+        "stop" nếu hết việc hoặc thao tác thất bại.
     """
-    log.info("=== Đã hoàn thành mọi chu trình của tài khoản hiện tại! ===")
+    log.info("=== Đã hoàn thành mọi chu trình của nhân vật hiện tại! ===")
     _return_to_world(device, max_attempts=4)
     _cleanup_captures()
 
-    if switched_account:
-        log.info("=== Cả 2 tài khoản đều đã hoàn thành mọi chu trình! Đang dừng bot... ===")
-        return False
-
-    log.info("=== Tiến hành chuyển sang tài khoản thứ 2... ===")
-    success = handle_switch_account(device)
-    if success:
-        log.info("Chuyển tài khoản thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
+    if current_character == 1:
+        log.info("=== Tiến hành chuyển sang nhân vật thứ 2... ===")
+        success = handle_switch_character(device)
+        if not success:
+            log.warning("Chuyển nhân vật thất bại! Đang dừng bot...")
+            return "stop"
+        log.info("Chuyển nhân vật thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
         pause(5.0)
         _handle_logo_18_check(device)
         # Sau khi 18+ check xong, nếu vẫn chưa đủ 15s thì chờ thêm cho game ổn định
-        log.info("Chờ thêm 10s cho game load tài khoản mới hoàn tất...")
+        log.info("Chờ thêm 10s cho game load nhân vật mới hoàn tất...")
         pause(10.0)
         config.CYCLE_RESOURCES = None
-        return True
-    else:
-        log.warning("Chuyển tài khoản thất bại! Đang dừng bot...")
-        return False
+        return "character"
+
+    log.info("=== Nhân vật thứ 2 đã xong. Thử chuyển sang account kế tiếp... ===")
+    account_result = "failed"
+    for attempt in range(1, 4):
+        log.info("Thử chuyển account lần %d/3...", attempt)
+        account_result = handle_switch_account(device)
+        if account_result in ("switched", "wrapped", "done"):
+            break
+        log.warning(
+            "Chuyển account lần %d/3 thất bại. Đưa về WORLD rồi thử lại nếu còn lượt...",
+            attempt,
+        )
+        _return_to_world(device, max_attempts=4)
+        if attempt < 3:
+            pause(random.uniform(8.0, 15.0))
+
+    if account_result == "wrapped":
+        log.info("Đã quay lại account đầu tiên. Chuyển về char 1 rồi đóng app.")
+        try:
+            pause(5.0)
+            _handle_logo_18_check(device)
+            log.info("Chờ thêm 10s cho game load account đầu tiên trước khi chuyển về char 1...")
+            pause(10.0)
+            if not handle_switch_character(device):
+                log.warning("Không chuyển được về char 1 trước khi đóng app; vẫn đóng app.")
+        except Exception:
+            log.exception("Lỗi khi chuyển về char 1 trước khi đóng app")
+        try:
+            device.shutdown()
+        except Exception:
+            log.exception("Đóng app sau khi quay về account đầu thất bại")
+        return "stop"
+    if account_result == "done":
+        log.info("Không còn account kế tiếp. Đóng app và dừng bot.")
+        try:
+            device.shutdown()
+        except Exception:
+            log.exception("Đóng app sau account cuối thất bại")
+        return "stop"
+    if account_result != "switched":
+        wait_retry = random.uniform(20.0, 35.0)
+        log.warning(
+            "Chuyển account vẫn thất bại sau 3 lần. Không dừng bot; chờ %.2fs rồi thử lại vòng sau.",
+            wait_retry,
+        )
+        pause(wait_retry)
+        return "retry"
+    log.info("Chuyển account thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
+    pause(5.0)
+    _handle_logo_18_check(device)
+    log.info("Chờ thêm 10s cho game load account mới hoàn tất...")
+    pause(10.0)
+    config.CYCLE_RESOURCES = None
+    return "account"
 
 
 def _dispatch_to_handler(
@@ -840,9 +895,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     log.info("B1: Đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...", wait_b1)
     pause(wait_b1)
 
-    # Khởi tạo danh sách chu trình ngẫu nhiên cho tài khoản đầu tiên
+    # Khởi tạo danh sách chu trình ngẫu nhiên cho nhân vật đầu tiên
     remaining_workflows = _build_randomized_workflows()
-    log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản này: %s ===", remaining_workflows)
+    log.info("=== Thứ tự chu trình ngẫu nhiên của nhân vật này: %s ===", remaining_workflows)
 
     last_state: S | None = None
     stuck_count = 0
@@ -850,7 +905,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     dispatched_count = 0
     state_history: list[S] = []
     reset_slider_state()
-    switched_account = False
+    current_character = 1
     is_first_world_snapshot = True
 
     # Read the n/N badge once on startup so we know the current queue
@@ -885,43 +940,58 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
         if should_stop():
             break
 
-        # Nếu đã hoàn thành mọi chu trình cho tài khoản hiện tại:
+        # Nếu đã hoàn thành mọi chu trình cho nhân vật hiện tại:
         if not remaining_workflows:
-            success = _handle_queue_full(device, switched_account)
-            if not success:
+            transition = _handle_queue_full(device, current_character)
+            if transition == "stop":
                 break
+            if transition == "retry":
+                log.info("Giữ nguyên nhân vật/account hiện tại để thử chuyển account lại...")
+                continue
 
-            switched_account = True
-            log.info("Bắt đầu lại quy trình với tài khoản mới...")
+            if transition == "character":
+                current_character = 2
+                log.info("Bắt đầu lại quy trình với nhân vật thứ 2...")
+            else:
+                current_character = 1
+                log.info("Bắt đầu lại quy trình với account mới, nhân vật thứ 1...")
+
             _prepare_world_only(device)
 
             # B1: sau khi vào được city hoặc world, chờ 3>8s
             wait_b1 = random.uniform(3.0, 8.0)
-            log.info("B1: Tài khoản mới đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...", wait_b1)
+            log.info(
+                "B1: Account/nhân vật mới đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...",
+                wait_b1,
+            )
             pause(wait_b1)
 
-            # Khởi tạo lại chu trình cho tài khoản mới
+            # Khởi tạo lại chu trình cho nhân vật/account mới
             remaining_workflows = _build_randomized_workflows()
-            log.info("=== Thứ tự chu trình ngẫu nhiên của tài khoản mới: %s ===", remaining_workflows)
+            log.info(
+                "=== Thứ tự chu trình ngẫu nhiên của account hiện tại / nhân vật %d: %s ===",
+                current_character,
+                remaining_workflows,
+            )
 
-            # Reset các trạng thái của acc mới
+            # Reset các trạng thái của nhân vật/account mới
             last_state = None
             stuck_count = 0
             dispatched_count = 0
             is_first_world_snapshot = True
             reset_slider_state()
             device._back_locked_until = 0.0
-            log.info("Bỏ khoá nút BACK đối với tài khoản mới.")
+            log.info("Bỏ khoá nút BACK đối với account/nhân vật mới.")
 
-            # Đọc lại huy hiệu ban đầu cho tài khoản mới
+            # Đọc lại huy hiệu ban đầu cho nhân vật/account mới
             n0, mx0 = _read_initial_slot_badge_with_retries(device)
             if mx0 is not None and mx0 > 0:
                 config.MAX_SLOTS = mx0
             if n0 is not None:
                 dispatched_count = n0
-                log.info("Hàng chờ tài khoản mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
+                log.info("Hàng chờ account/nhân vật mới ban đầu: %d/%d", n0, config.MAX_SLOTS)
             else:
-                log.warning("Không đọc được huy hiệu tài khoản mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
+                log.warning("Không đọc được huy hiệu account/nhân vật mới sau các lần thử -> coi như 0/%d", config.MAX_SLOTS)
                 dispatched_count = 0
             continue
 
@@ -1203,7 +1273,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             if not getattr(config, "CYCLE_RESOURCES", None):
                 config.CYCLE_RESOURCES = ["corn", "stone", "gold", "wood"]
                 random.shuffle(config.CYCLE_RESOURCES)
-                log.info("Khởi tạo chu kỳ tài nguyên ngẫu nhiên cho tài khoản: %s", config.CYCLE_RESOURCES)
+                log.info("Khởi tạo chu kỳ tài nguyên ngẫu nhiên cho nhân vật: %s", config.CYCLE_RESOURCES)
 
             if dispatched_count < len(config.CYCLE_RESOURCES):
                 current_resource = config.CYCLE_RESOURCES[dispatched_count]
@@ -1231,7 +1301,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                     pass
             else:
                 remaining = device._back_locked_until - time.monotonic()
-                log.warning("Handler crash -> BACK bị khoá còn %.0fs (sau bật game/chuyển acc)", remaining)
+                log.warning("Handler crash -> BACK bị khoá còn %.0fs (sau bật game/chuyển nhân vật)", remaining)
             pause(2.0)
             continue
 

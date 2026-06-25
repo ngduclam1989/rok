@@ -18,7 +18,7 @@ defaults:
   resource: cycle          # Xoay vòng tài nguyên (1 ngô, 1 đá, 1 vàng, 2 gỗ)
   target_level: 5
   max_slots: 4
-  skip_level_adjust: false
+  skip_level_adjust: true
   turn_wait_min: 60
   control_mode: scrcpy    # scrcpy (máy thật/ADB nhanh), adb hoặc physical_mouse (Bluestacks)
   save_debug_images: false             # Tự động chụp và vẽ đường đi của chuột hoặc điểm bấm (chỉ bật khi debug, mặc định tắt)

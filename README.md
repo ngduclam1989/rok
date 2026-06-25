@@ -28,6 +28,18 @@ Chay nhanh tren may that hien tai:
 .venv\Scripts\python.exe main.py bot --serial YOUR_SERIAL --control-mode adb --max-iter 1
 ```
 
+Chay bang file `.bat` de khong can activate `.venv`:
+
+```bat
+run_bot.bat
+```
+
+Neu can truyen them tham so:
+
+```bat
+run_bot.bat --serial YOUR_SERIAL --control-mode adb
+```
+
 Chay rieng luong claim VIP:
 
 ```bat
@@ -48,7 +60,7 @@ Bot chay theo cac buoc chinh sau:
    state phu hop (`world`/`city`) de bat dau workflow.
 5. `B4 - Chay workflow`: xao tron va thuc hien cac viec nhu `getres`,
    `alliance`, `farm`, `vip`; doc slot hanh quan, chinh slider tai nguyen, gui
-   quan farm va chuyen account khi hang doi day.
+   quan farm, chuyen nhan vat va chuyen account khi ca 2 nhan vat da xong.
 6. `B5 - Don dep`: xoa capture debug tam, mo khoa input, dong/giu app theo cau
    hinh va giai phong ket noi device.
 7. `B6 - Cho vong tiep theo`: neu chay lien tuc, bot ngu theo thoi gian cau
@@ -56,6 +68,42 @@ Bot chay theo cac buoc chinh sau:
 
 Luot claim VIP co the chay rieng bang `--only-claim-vip`; bot se vao city, mo
 VIP, OCR vung chu `NHAN`, tap nhan diem/rong free neu con, roi dong popup VIP.
+
+## Luong nhan vat va account
+
+Bot chay moi account theo 2 nhan vat:
+
+1. Chay workflow cho `char 1`.
+2. Khi `char 1` xong het workflow / day hang doi, bot vao game menu va chuyen
+   sang `char 2`.
+3. Chay workflow cho `char 2`.
+4. Khi `char 2` xong, bot vao `Trung Tam Nguoi Dung` va chuyen sang account
+   tiep theo trong `account.txt`.
+5. Account moi se quay lai buoc 1, bat dau tu `char 1`.
+
+Thu tu account duoc tinh theo `account.txt`:
+
+- Neu account dau tien bot nhan dien la dong cuoi danh sach, bot chay nguoc
+  tu cuoi len dau.
+- Moi truong hop con lai, ke ca khi account dau tien nam giua danh sach, bot
+  chay xuoi tu dong dau tien.
+
+Vi du voi `account.txt` hien tai:
+
+```text
+ngduclam6@gmail.com
+ngduclam29@gmail.com
+ngduclam999@gmail.com
+ngduclam1999@gmail.com
+```
+
+- Neu bat dau o `ngduclam1999@gmail.com`, thu tu la `1999 -> 999 -> 29 -> 6`.
+- Neu bat dau o `ngduclam6@gmail.com`, `ngduclam29@gmail.com`, hoac
+  `ngduclam999@gmail.com`, thu tu la `6 -> 29 -> 999 -> 1999`.
+
+Khi account cuoi cung chay xong `char 2`, bot se chuyen lai account dau tien
+theo thu tu chay, dua ve `char 1`, roi kill app game `com.rok.gp.vn`. Bot chi
+dong app Rise of Kingdoms, khong tat may hay tat gia lap.
 
 ## Control modes
 

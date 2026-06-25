@@ -34,8 +34,8 @@ defaults:
   # Cấu hình thời gian chờ:
   delay_after_popup_min: 5     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
   delay_after_popup_max: 15    # Thời gian chờ tối đa sau khi tắt popup (giây)
-  delay_after_dispatch_min: 10 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
-  delay_after_dispatch_max: 20 # Thời gian chờ tối đa sau khi gửi quân (giây)
+  delay_after_dispatch_min: 3 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
+  delay_after_dispatch_max: 9 # Thời gian chờ tối đa sau khi gửi quân (giây)
   enable_city_world_toggle: true        # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
   city_world_toggle_probability: 0.2    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)
 

@@ -676,7 +676,6 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         try:
             pause(5.0)
             _handle_logo_18_check(device)
-            log.info("Chờ thêm 10s cho game load account đầu tiên trước khi đóng app...")
             pause(10.0)
         except Exception:
             log.exception("Lỗi khi chờ game load account đầu tiên trước khi đóng app")

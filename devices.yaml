@@ -26,7 +26,7 @@ defaults:
   auto_close_bluestack: false          # Tự động tắt máy ảo Bluestacks sau khi chạy xong bot (mặc định tắt)
   
   # Cấu hình chu kỳ chờ chạy lại bot (B6):
-  cycle_wait_min: 0                  # Thời gian chờ cơ bản giữa các lượt chạy (phút)
+  cycle_wait_min: 145                  # Thời gian chờ cơ bản giữa các lượt chạy (phút)
   cycle_wait_variance_min: 10          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
 
 

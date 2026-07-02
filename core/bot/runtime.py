@@ -10,15 +10,17 @@ import argparse
 import logging
 import random
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+import cv2
 import numpy as np
 
 from core import ocr
 from core.device import Device
 
 from . import config
-from .constants import CAPTURES_DIR, STOP_FLAG, TEMPLATES_DIR
+from .constants import CAPTURES_DIR, ROOT, STOP_FLAG, TEMPLATES_DIR
 from .detection import detect_state, is_lock_screen
 from .geometry import pct_to_px, region_pct_to_px, tap_template, ocr_text_in
 from .handlers import (
@@ -86,7 +88,315 @@ def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4)
     return None, None
 
 
+@dataclass(frozen=True)
+class _BoostImageProps:
+    path: str
+    threshold: float = 0.70
+
+
+@dataclass(frozen=True)
+class _BoostAssets:
+    active_buff_blue: _BoostImageProps = _BoostImageProps(
+        "buffs/enhanced_gathering_blue.png",
+    )
+    active_buff_purple: _BoostImageProps = _BoostImageProps(
+        "buffs/enhanced_gathering_purple.png",
+    )
+    item_blue: _BoostImageProps = _BoostImageProps(
+        "items/enhanced_gathering_blue.png",
+    )
+    item_purple: _BoostImageProps = _BoostImageProps(
+        "items/enhanced_gathering_purple.png",
+    )
+
+
+class _GatheringBoostAction:
+    menu_pos = (2188, 983)
+    dao_cu_region = (1527, 950, 1653, 1080)
+    boost_tab_region = (948, 149, 1113, 159)
+    use_region = (1579, 903, 1782, 959)
+    close_region = (1858, 104, 1903, 143)
+
+    def __init__(self, bot, assets: _BoostAssets | None = None) -> None:
+        self.bot = bot
+        self.assets = assets or _BoostAssets()
+
+    def ensure_gathering_boost(self) -> bool:
+        self.bot.back_to_map()
+        self.bot.snapshot_debug("B1_before_boost_check")
+        if self.has_any_active_buff():
+            log.info("[boost] B1: gathering boost buff is already active.")
+            return False
+
+        log.info("[boost] B1: gathering boost is not active; opening item flow.")
+        if not self.open_dao_cu_menu():
+            log.info("[boost] B4: cannot find Dao Cu menu entry.")
+            return False
+
+        self.tap_random(self.dao_cu_region, jitter=10, label="B5 Dao Cu")
+        self.bot.snapshot_debug("B6_after_dao_cu")
+        self.tap_random(self.boost_tab_region, label="B7 boost tab")
+        self.bot.snapshot_debug("B8_before_item_search")
+
+        selected = self.find_first_available_item(
+            [self.assets.item_blue, self.assets.item_purple],
+        )
+        if selected is None:
+            log.info("[boost] B8: no enhanced gathering item found.")
+            self.tap_random(self.close_region, label="B8 no item -> close")
+            self.bot.snapshot_debug("B8_no_item_after_close")
+            return False
+
+        _item_image, item_pos = selected
+        x = item_pos[0] + random.randint(-20, 20)
+        y = item_pos[1] + random.randint(-20, 20)
+        log.info("[boost] B9: tap item at (%d,%d) from center %s.", x, y, item_pos)
+        self.bot.tap(x, y, sleep_time=1.0)
+        self.bot.snapshot_debug("B9_after_item_tap")
+
+        self.tap_random(self.use_region, label="B10 use")
+        self.bot.snapshot_debug("B10_after_use")
+        self.tap_random(self.close_region, label="B11 close")
+        self.bot.snapshot_debug("B11_after_close")
+
+        active_after = self.has_any_active_buff()
+        log.info("[boost] B11: active buff after use=%s.", active_after)
+        return active_after
+
+    def has_any_active_buff(self) -> bool:
+        return self.has_buff(self.assets.active_buff_blue) or self.has_buff(
+            self.assets.active_buff_purple,
+        )
+
+    def has_buff(self, buff_image: _BoostImageProps) -> bool:
+        found, pos = self.bot.check_any(buff_image)
+        log.info("[boost] B1: check %s found=%s pos=%s.", buff_image.path, found, pos)
+        return found
+
+    def open_dao_cu_menu(self) -> bool:
+        if self.is_dao_cu_visible():
+            log.info("[boost] B2: Dao Cu already visible.")
+            return True
+        log.info("[boost] B3: Dao Cu not visible; tap menu at %s.", self.menu_pos)
+        self.bot.tap(*self.menu_pos, sleep_time=1.0)
+        self.bot.snapshot_debug("B3_after_menu_tap")
+        matched = self.is_dao_cu_visible()
+        log.info("[boost] B4: Dao Cu visible after menu=%s.", matched)
+        return matched
+
+    def is_dao_cu_visible(self) -> bool:
+        for hit in self.bot.read_ocr(self.dao_cu_region):
+            text = ocr.strip_diacritics(hit.text).lower().strip()
+            compact = text.replace(" ", "")
+            matched = ("daocu" in compact or "doc" in compact) and hit.confidence >= 0.5
+            log.info(
+                "[boost] B2/B4 OCR text=%r norm=%r conf=%.3f center=(%d,%d) matched=%s.",
+                hit.text,
+                text,
+                hit.confidence,
+                hit.cx,
+                hit.cy,
+                matched,
+            )
+            if matched:
+                return True
+        return False
+
+    def find_first_available_item(
+        self,
+        item_images: list[_BoostImageProps],
+    ) -> tuple[_BoostImageProps, tuple[int, int]] | None:
+        for item_image in item_images:
+            found, item_pos = self.bot.check_any(item_image)
+            log.info("[boost] B8: check %s found=%s pos=%s.", item_image.path, found, item_pos)
+            if found and item_pos is not None:
+                return item_image, item_pos
+        return None
+
+    def tap_random(
+        self,
+        region: tuple[int, int, int, int],
+        *,
+        jitter: int | None = None,
+        label: str,
+    ) -> None:
+        x1, y1, x2, y2 = self.normalize_rect(region)
+        if jitter is None:
+            x = random.randint(x1, x2)
+            y = random.randint(y1, y2)
+        else:
+            cx = (x1 + x2) // 2
+            cy = (y1 + y2) // 2
+            x = cx + random.randint(-jitter, jitter)
+            y = cy + random.randint(-jitter, jitter)
+        log.info("[boost] %s: tap (%d,%d) in region %s.", label, x, y, (x1, y1, x2, y2))
+        self.bot.tap(x, y, sleep_time=1.0)
+
+    @staticmethod
+    def normalize_rect(region: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+        x1, y1, x2, y2 = region
+        return min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)
+
+
+class _GatheringBoostDeviceAdapter:
+    def __init__(self, device: Device) -> None:
+        self.device = device
+        self.assets_root = TEMPLATES_DIR / "gathering_boost"
+
+    def back_to_map(self) -> None:
+        _prepare_world_only(self.device)
+
+    def tap(self, x: float, y: float, sleep_time: float = 0.1) -> None:
+        self.device.tap(int(round(x)), int(round(y)))
+        pause(float(sleep_time))
+
+    def check_any(self, image_props) -> tuple[bool, tuple[int, int] | None]:
+        screen = self.device.snapshot()
+        match = self._find_export_template(screen, image_props.path)
+        if match is None:
+            log.info("[boost] Template %s khong doc duoc/khong match", image_props.path)
+            return False, None
+
+        confidence, scale, center, size = match
+        found = confidence >= float(getattr(image_props, "threshold", 0.70))
+        log.info(
+            "[boost] Match %s found=%s conf=%.3f scale=%.3f center=%s size=%s",
+            image_props.path,
+            found,
+            confidence,
+            scale,
+            center,
+            size,
+        )
+        save_debug_image(
+            screen,
+            self.device.serial,
+            subdir="gathering_boost",
+            prefix="boost_match",
+            clicks=[center],
+            label=f"{image_props.path} conf={confidence:.3f}",
+        )
+        return found, center if found else None
+
+    def read_ocr(self, region) -> list:
+        screen = self.device.snapshot()
+        hits = ocr.find_all(screen, region=tuple(region))
+        save_debug_image(
+            screen,
+            self.device.serial,
+            subdir="gathering_boost",
+            prefix="boost_ocr",
+            rects=[tuple(region)],
+            label="Boost OCR Dao Cu",
+        )
+        return hits
+
+    def snapshot_debug(self, label: str) -> None:
+        try:
+            screen = self.device.snapshot()
+        except Exception:
+            log.exception("[boost] Snapshot debug failed: %s", label)
+            return
+        save_debug_image(
+            screen,
+            self.device.serial,
+            subdir="gathering_boost",
+            prefix="boost",
+            label=label,
+        )
+
+    def _find_export_template(
+        self,
+        screen: np.ndarray,
+        rel_path: str,
+    ) -> tuple[float, float, tuple[int, int], tuple[int, int]] | None:
+        path = self.assets_root / rel_path
+        tpl = cv2.imread(str(path))
+        if tpl is None:
+            log.warning("[boost] Khong doc duoc template: %s", path)
+            return None
+
+        th, tw = tpl.shape[:2]
+        sh, sw = screen.shape[:2]
+        scales = []
+        for base in (
+            1.0,
+            sw / 1280.0,
+            sh / 720.0,
+            min(sw / 1280.0, sh / 720.0),
+            max(sw / 1280.0, sh / 720.0),
+        ):
+            for mul in (0.65, 0.75, 0.85, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5):
+                scales.append(base * mul)
+
+        best = None
+        seen = set()
+        for scale in scales:
+            key = round(scale, 3)
+            if key in seen:
+                continue
+            seen.add(key)
+            if abs(scale - 1.0) > 0.01:
+                scaled = cv2.resize(
+                    tpl,
+                    (max(1, int(tw * scale)), max(1, int(th * scale))),
+                )
+            else:
+                scaled = tpl
+            h, w = scaled.shape[:2]
+            if h > sh or w > sw:
+                continue
+            result = cv2.matchTemplate(screen, scaled, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+            center = (int(max_loc[0] + w // 2), int(max_loc[1] + h // 2))
+            current = (float(max_val), float(scale), center, (w, h))
+            if best is None or current[0] > best[0]:
+                best = current
+        return best
+
+
+def _ensure_gathering_boost(device: Device) -> bool:
+    action = _GatheringBoostAction(
+        _GatheringBoostDeviceAdapter(device),
+    )
+    return action.ensure_gathering_boost()
+
+
+def _has_gathering_boost(device: Device) -> bool:
+    adapter = _GatheringBoostDeviceAdapter(device)
+    assets = _BoostAssets()
+    return adapter.check_any(assets.active_buff_blue)[0] or adapter.check_any(
+        assets.active_buff_purple
+    )[0]
+
+
 def _claim_vip(device: Device) -> None:
+    log.info("=== Bắt đầu hành trình VIP/Boost ===")
+    _prepare_world_only(device)
+
+    if _has_gathering_boost(device):
+        log.info(
+            "Đã có gathering boost active -> bỏ qua nhận VIP và bỏ qua mở boost. Kết thúc hành trình VIP/Boost.",
+        )
+        return
+
+    actions = [
+        ("vip", lambda: _claim_vip_only(device)),
+        ("boost", lambda: _ensure_gathering_boost(device)),
+    ]
+    random.shuffle(actions)
+    log.info("Chưa có gathering boost -> thứ tự chạy VIP/Boost: %s", [name for name, _ in actions])
+    for name, action in actions:
+        log.info("Bắt đầu action VIP/Boost: %s", name)
+        try:
+            action()
+        except Exception:
+            log.exception("Action VIP/Boost %s lỗi", name)
+        _prepare_world_only(device)
+    log.info("=== Hoàn thành hành trình VIP/Boost ===")
+
+
+def _claim_vip_only(device: Device) -> None:
     log.info("=== Bắt đầu nhận điểm và rương VIP hàng ngày ===")
     try:
         # 1. Đảm bảo ở màn hình CITY

@@ -254,7 +254,18 @@ def sleep_with_stop_check(min_sec: float, max_sec: float) -> None:
 
 def pause(min_s: float, max_s: float | None = None) -> None:
     """Short sleep with stop-flag + pause-flag polling every 0.5s."""
-    target = min_s if max_s is None else random.uniform(min_s, max_s)
+    if max_s is None:
+        if min_s >= 10.0:
+            jitter = 2.0
+        elif min_s >= 3.0:
+            jitter = 1.0
+        elif min_s >= 1.0:
+            jitter = 0.3
+        else:
+            jitter = 0.1
+        target = random.uniform(max(0.0, min_s - jitter), min_s + jitter)
+    else:
+        target = random.uniform(min_s, max_s)
     elapsed = 0.0
     while elapsed < target:
         if should_stop():

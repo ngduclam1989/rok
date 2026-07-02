@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 
@@ -10,6 +9,7 @@ from core.device import Device
 
 from ..constants import CAPTURES_DIR
 from ..geometry import pct_to_px
+from ..signals import pause
 from ..state import StepResult
 
 log = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def handle_unknown(
     if stuck_count == 4:
         log.warning("Hồi phục 4: BACK x2 + đợi lâu")
         device.key("BACK")
-        time.sleep(1.5)
+        pause(1.5)
         device.key("BACK")
         return StepResult(False, "back x2", sleep_after=4.0)
 

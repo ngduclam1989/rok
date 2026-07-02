@@ -6,7 +6,6 @@ to pixel coords, OCR a region for keywords, and find/tap templates.
 from __future__ import annotations
 
 import logging
-import time
 import cv2
 
 import numpy as np
@@ -14,6 +13,7 @@ import numpy as np
 from core import ocr
 from core.device import Device
 from .constants import CAPTURES_DIR
+from .signals import pause
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ def tap_template(
         device.tap(*pos)
 
     # Đợi 0.8s cho giao diện chuyển đổi/mở ra
-    time.sleep(0.8)
+    pause(0.8)
 
     return pos
 

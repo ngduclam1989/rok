@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+import warnings
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -76,7 +77,31 @@ class Device:
     def _start_scrcpy_client(self) -> None:
         """Start scrcpy video/control sockets for low-latency capture and input."""
         try:
+            warnings.filterwarnings(
+                "ignore",
+                message="pkg_resources is deprecated as an API.*",
+                category=UserWarning,
+            )
             import scrcpy
+
+            if not getattr(scrcpy.Client, "_rok_stream_loop_patched", False):
+                original_stream_loop = scrcpy.Client._Client__stream_loop
+
+                def guarded_stream_loop(client):
+                    try:
+                        original_stream_loop(client)
+                    except Exception as exc:
+                        client.alive = False
+                        device = getattr(client, "device", None)
+                        serial = getattr(device, "serial", None) or getattr(device, "_serial", None) or "unknown"
+                        log.warning(
+                            "[%s] scrcpy video stream lỗi (%s). Sẽ dùng ADB dự phòng.",
+                            serial,
+                            exc,
+                        )
+
+                scrcpy.Client._Client__stream_loop = guarded_stream_loop
+                scrcpy.Client._rok_stream_loop_patched = True
 
             self._scrcpy_client = scrcpy.Client(
                 device=self.serial,
@@ -93,6 +118,12 @@ class Device:
                 time.sleep(0.05)
             if self._scrcpy_available:
                 log.info("[%s] Đã kích hoạt scrcpy control + video stream", self.serial)
+            elif not bool(getattr(self._scrcpy_client, "alive", False)):
+                self._scrcpy_client = None
+                log.warning(
+                    "[%s] scrcpy stream da dung trong luc khoi dong; dung ADB du phong.",
+                    self.serial,
+                )
             else:
                 log.warning(
                     "[%s] scrcpy đã khởi động nhưng chưa có frame; tạm dùng ADB snapshot cho đến khi stream sẵn sàng",
@@ -108,7 +139,11 @@ class Device:
             )
 
     def _scrcpy_ready(self) -> bool:
-        return self.control_mode == "scrcpy" and self._scrcpy_client is not None
+        return (
+            self.control_mode == "scrcpy"
+            and self._scrcpy_client is not None
+            and bool(getattr(self._scrcpy_client, "alive", True))
+        )
 
     def _adb_shell(self, *args: str) -> str:
         cmd = [self._adb_path, "-s", self.serial, "shell", *args]

@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 # Trùng tên với CLI flag của subcommand `bot`.
 _BOT_CONFIG_DEFAULTS: dict[str, object] = {
     "resource": "wood",
+    "farm_scenario": "random",
     "target_level": 5,
     "max_slots": 4,
     "skip_level_adjust": False,
@@ -30,11 +31,26 @@ _BOT_CONFIG_DEFAULTS: dict[str, object] = {
     "control_mode": "adb",
 }
 
-def normalize_resource(res: str) -> str:
+def split_resource_and_farm_scenario(
+    res: str,
+    farm_scenario: object | None = None,
+) -> tuple[str, str]:
     r = str(res).strip().lower()
     if r in ("ngo", "food", "crop", "dattrong", "corn"):
-        return "corn"
-    return r
+        r = "corn"
+
+    scenario = str(farm_scenario or "random").strip().lower()
+    if r in ("cycle_random", "cycle-random", "cycle:random", "cyclerandom"):
+        return "cycle", "random"
+    for sid in ("1", "2", "3"):
+        if r in (f"cycle_{sid}", f"cycle-{sid}", f"cycle:{sid}", f"cycle{sid}"):
+            return "cycle", sid
+    return r, scenario
+
+
+def normalize_resource(res: str) -> str:
+    resource, _ = split_resource_and_farm_scenario(res)
+    return resource
 
 
 _VALID_RESOURCES = frozenset({"barb", "corn", "wood", "stone", "gold", "cycle"})
@@ -51,6 +67,7 @@ class BotDeviceConfig:
     name: str
     serial: str
     resource: str
+    farm_scenario: str
     target_level: int
     max_slots: int
     skip_level_adjust: bool
@@ -59,9 +76,12 @@ class BotDeviceConfig:
 
     def to_bot_cli_args(self) -> list[str]:
         """Chuyển thành đối số CLI cho `python main.py bot ...`."""
+        resource = self.resource
+        if resource == "cycle":
+            resource = f"cycle_{self.farm_scenario}"
         args = [
             "--serial", self.serial,
-            "--resource", self.resource,
+            "--resource", resource,
             "--target-level", str(self.target_level),
             "--max-slots", str(self.max_slots),
             "--turn-wait-min", str(self.turn_wait_min),
@@ -319,6 +339,9 @@ def load_global_settings(devices_file: Path) -> None:
             "save_debug_images": "SAVE_DEBUG_IMAGES",
             "enable_vip_claim": "ENABLE_VIP_CLAIM",
             "auto_close_bluestack": "AUTO_CLOSE_BLUESTACK",
+            "alliance_gifts_probability": "ALLIANCE_GIFTS_PROBABILITY",
+            "alliance_territory_probability": "ALLIANCE_TERRITORY_PROBABILITY",
+            "alliance_tech_probability": "ALLIANCE_TECH_PROBABILITY",
         }
         
         for yaml_key, config_key in mapping.items():
@@ -327,7 +350,12 @@ def load_global_settings(devices_file: Path) -> None:
                 try:
                     if config_key in ("ENABLE_CITY_WORLD_TOGGLE", "SAVE_DEBUG_IMAGES", "ENABLE_VIP_CLAIM", "AUTO_CLOSE_BLUESTACK"):
                         parsed_val = bool(val)
-                    elif config_key == "CITY_WORLD_TOGGLE_PROBABILITY":
+                    elif config_key in (
+                        "CITY_WORLD_TOGGLE_PROBABILITY",
+                        "ALLIANCE_GIFTS_PROBABILITY",
+                        "ALLIANCE_TERRITORY_PROBABILITY",
+                        "ALLIANCE_TECH_PROBABILITY",
+                    ):
                         parsed_val = float(val)
                     else:
                         parsed_val = int(val)
@@ -399,18 +427,29 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
             if k in cfg:
                 cfg[k] = v
 
-        cfg["resource"] = normalize_resource(cfg["resource"])
-        if cfg["resource"] not in _VALID_RESOURCES:
+        resource, farm_scenario = split_resource_and_farm_scenario(
+            cfg["resource"],
+            cfg.get("farm_scenario", "random"),
+        )
+        cfg["resource"] = resource
+        if resource not in _VALID_RESOURCES:
             raise ValueError(
                 f"Thiết bị {d.get('name', d['serial'])}: "
-                f"resource='{cfg['resource']}' không hợp lệ. "
+                f"resource='{resource}' không hợp lệ. "
                 f"Phải là một trong: {sorted(_VALID_RESOURCES)}",
+            )
+        if farm_scenario not in {"random", "1", "2", "3"}:
+            raise ValueError(
+                f"Thiết bị {d.get('name', d['serial'])}: "
+                f"farm_scenario='{farm_scenario}' không hợp lệ. "
+                "Phải là một trong: random, 1, 2, 3",
             )
 
         out.append(BotDeviceConfig(
             name=name,
             serial=new_serial,
             resource=str(cfg["resource"]),
+            farm_scenario=farm_scenario,
             target_level=int(cfg["target_level"]),
             max_slots=int(cfg["max_slots"]),
             skip_level_adjust=bool(cfg["skip_level_adjust"]),

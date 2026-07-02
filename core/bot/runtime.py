@@ -216,6 +216,31 @@ def _build_randomized_workflows() -> list[str]:
     return workflows
 
 
+def _finish_current_workflow(
+    remaining_workflows: list[str],
+    expected: str,
+    reason: str,
+) -> None:
+    """Mark the first pending workflow as complete without skipping later work."""
+    log.info(
+        "Hoan tat workflow=%s (%s). Danh sach truoc khi cap nhat: %s",
+        expected,
+        reason,
+        remaining_workflows,
+    )
+    if remaining_workflows and remaining_workflows[0] == expected:
+        remaining_workflows.pop(0)
+        log.info("Danh sach workflow con lai: %s", remaining_workflows)
+        return
+
+    log.warning(
+        "Khong xoa workflow=%s vi dau danh sach hien la %s. Giu nguyen danh sach: %s",
+        expected,
+        remaining_workflows[0] if remaining_workflows else None,
+        remaining_workflows,
+    )
+
+
 _chores_first: bool = True
 
 
@@ -275,12 +300,7 @@ def _run_vip_and_chores_now(device: Device) -> None:
 
 def _handle_logo_18_check(device: Device) -> None:
     # Vùng click ngẫu nhiên khi phát hiện logo 18+
-    click_rect = (
-        min(1319, 1071),  # x_left  = 1071
-        min(1048, 849),   # y_top   = 849
-        max(1319, 1071),  # x_right = 1319
-        max(1048, 849),   # y_bot   = 1048
-    )  # -> (1071, 849, 1319, 1048)
+    click_rect_ref = (950, 810, 1440, 1070)
 
     log.info("Bắt đầu quy trình quét và click logo 18+ (tối đa 10 lần)...")
     stable_world_count = 0  # Đếm số lần liên tiếp detect WORLD/CITY để tránh false-positive
@@ -295,6 +315,27 @@ def _handle_logo_18_check(device: Device) -> None:
             log.warning("Chụp màn hình/Nhận diện trạng thái khi quét logo 18+ thất bại: %s", snap_err)
             stable_world_count = 0
             pause(5.0)
+            continue
+
+        if state == S.EXIT_DIALOG:
+            stable_world_count = 0
+            log.info("Quet logo 18+ gap popup thoat game -> cham HUY roi quet tiep")
+            result = handle_exit_dialog(device, screen)
+            pause(getattr(result, "sleep_after", 1.5) or 1.5)
+            continue
+
+        if state == S.NETWORK_ERROR:
+            stable_world_count = 0
+            log.info("Quet logo 18+ gap popup mat mang -> xu ly reconnect roi quet tiep")
+            result = handle_network_error(device, screen)
+            pause(getattr(result, "sleep_after", 20.0) or 20.0)
+            continue
+
+        if state == S.GEMS_SHOP:
+            stable_world_count = 0
+            log.info("Quet logo 18+ gap man nap tien -> thoat roi quet tiep")
+            result = handle_gems_shop(device, screen)
+            pause(getattr(result, "sleep_after", 2.5) or 2.5)
             continue
 
         if state in (S.WORLD, S.CITY):
@@ -315,6 +356,12 @@ def _handle_logo_18_check(device: Device) -> None:
             stable_world_count = 0
 
         h, w = screen.shape[:2]
+        click_rect = (
+            max(0, int(w * click_rect_ref[0] / 2400)),
+            max(0, int(h * click_rect_ref[1] / 1080)),
+            min(w - 1, int(w * click_rect_ref[2] / 2400)),
+            min(h - 1, int(h * click_rect_ref[3] / 1080)),
+        )
         logo_region = (
             int(w * 0.88),
             int(h * 0.80),
@@ -654,6 +701,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         log.info("Chờ thêm 10s cho game load nhân vật mới hoàn tất...")
         pause(10.0)
         config.CYCLE_RESOURCES = None
+        config.CYCLE_SCENARIO_ID = None
+        config.CYCLE_FALLBACK_RESOURCES = None
         return "character"
 
     log.info("=== Nhân vật thứ 2 đã xong. Thử chuyển sang account kế tiếp... ===")
@@ -705,6 +754,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
     log.info("Chờ thêm 10s cho game load account mới hoàn tất...")
     pause(10.0)
     config.CYCLE_RESOURCES = None
+    config.CYCLE_SCENARIO_ID = None
+    config.CYCLE_FALLBACK_RESOURCES = None
     return "account"
 
 
@@ -736,6 +787,65 @@ def _dispatch_to_handler(
     return handle_unknown(device, screen, stuck_count)
 
 
+_CYCLE_FARM_RESOURCES = ["corn", "stone", "gold", "wood"]
+_CYCLE_FARM_NO_GOLD = ["corn", "stone", "wood"]
+_CYCLE_FARM_SCENARIOS = {
+    "1": "4 luot dau random du 4 loai; luot 5 random 1 trong 4 loai",
+    "2": "2 luot dau gold; 3 luot sau gom du corn/stone/wood theo thu tu random",
+    "3": "luot dau gold; 4 luot sau gom du 4 loai theo thu tu random",
+}
+
+
+def _build_cycle_farm_plan(scenario_id: str) -> tuple[list[str], list[str]]:
+    if scenario_id == "1":
+        plan = list(_CYCLE_FARM_RESOURCES)
+        random.shuffle(plan)
+        plan.append(random.choice(_CYCLE_FARM_RESOURCES))
+        return plan, list(_CYCLE_FARM_RESOURCES)
+    if scenario_id == "2":
+        plan = ["gold", "gold"]
+        no_gold = list(_CYCLE_FARM_NO_GOLD)
+        random.shuffle(no_gold)
+        plan.extend(no_gold)
+        return plan, list(_CYCLE_FARM_NO_GOLD)
+    if scenario_id == "3":
+        plan = ["gold"]
+        tail = list(_CYCLE_FARM_RESOURCES)
+        random.shuffle(tail)
+        plan.extend(tail)
+        return plan, list(_CYCLE_FARM_RESOURCES)
+    raise ValueError(f"Unknown cycle farm scenario: {scenario_id}")
+
+
+def _cycle_farm_resource_for_dispatch(dispatched_count: int) -> str:
+    scenario = str(getattr(config, "FARM_SCENARIO", "random")).strip().lower()
+    if scenario not in {"random", "1", "2", "3"}:
+        log.warning("farm_scenario=%r khong hop le -> dung random", scenario)
+        scenario = "random"
+
+    if not getattr(config, "CYCLE_SCENARIO_ID", None):
+        scenario_id = random.choice(["1", "2", "3"]) if scenario == "random" else scenario
+        plan, fallback_pool = _build_cycle_farm_plan(scenario_id)
+        config.CYCLE_SCENARIO_ID = scenario_id
+        config.CYCLE_RESOURCES = plan
+        config.CYCLE_FALLBACK_RESOURCES = fallback_pool
+        log.info(
+            "Chon kich ban farm cycle %s: %s. Ke hoach: %s",
+            scenario_id,
+            _CYCLE_FARM_SCENARIOS[scenario_id],
+            plan,
+        )
+
+    plan = list(getattr(config, "CYCLE_RESOURCES", None) or [])
+    if dispatched_count < len(plan):
+        return plan[dispatched_count]
+
+    fallback_pool = list(
+        getattr(config, "CYCLE_FALLBACK_RESOURCES", None) or _CYCLE_FARM_RESOURCES
+    )
+    return random.choice(fallback_pool)
+
+
 def _reload_config_from_file(device_serial: str) -> None:
     """Tải lại cấu hình từ file devices.yaml động mà không ảnh hưởng tới trạng thái chạy hiện tại của bot."""
     try:
@@ -763,6 +873,7 @@ def _reload_config_from_file(device_serial: str) -> None:
             config.SKIP_LEVEL_ADJUST = dev_cfg.skip_level_adjust
             config.TURN_WAIT_SEC = dev_cfg.turn_wait_min * 60
             config.MAX_SLOTS = dev_cfg.max_slots
+            config.FARM_SCENARIO = dev_cfg.farm_scenario
             
             log.info(
                 "[ReloadConfig] Đã tải lại devices.yaml thành công cho %s: "
@@ -813,6 +924,8 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     device.keep_awake()
     device._back_locked_until = 0.0
     config.CYCLE_RESOURCES = None
+    config.CYCLE_SCENARIO_ID = None
+    config.CYCLE_FALLBACK_RESOURCES = None
 
     # B0: đứng im 10s để check thông tin device, app, màn hình
     log.info("B0: Đứng im 10s để check thông tin thiết bị, ứng dụng và màn hình...")
@@ -939,6 +1052,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
 
         # Nếu đã hoàn thành mọi chu trình cho nhân vật hiện tại:
         if not remaining_workflows:
+            log.info(
+                "Danh sach workflow da rong -> moi duoc chuyen nhan vat/account. Kiem tra lan cuoi: %s",
+                remaining_workflows,
+            )
             transition = _handle_queue_full(device, current_character)
             if transition == "stop":
                 break
@@ -1001,38 +1118,41 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             else:
                 log.info("Nhận VIP tự động bị tắt trong cấu hình.")
             _prepare_world_only(device)
-            remaining_workflows.pop(0)
+            _finish_current_workflow(remaining_workflows, "vip", "vip done")
             continue
 
         elif current_wf == "alliance":
             log.info(">>> Thực hiện chu trình: HOẠT ĐỘNG LIÊN MINH <<<")
             _prepare_world_only(device)
             from .chores import do_alliance_help, do_alliance_gifts, do_alliance_territory, do_alliance_tech
+            alliance_gifts_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_GIFTS_PROBABILITY", 0.30))))
+            alliance_territory_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_TERRITORY_PROBABILITY", 0.30))))
+            alliance_tech_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_TECH_PROBABILITY", 0.30))))
             # Trợ giúp liên minh: 100% tỷ lệ thực hiện
             try:
                 do_alliance_help(device)
             except Exception as e:
                 log.warning("Lỗi trợ giúp liên minh: %s", e)
             # Nhận quà liên minh: 30% tỷ lệ thực hiện
-            if random.random() < 0.30:
+            if random.random() < alliance_gifts_prob:
                 try:
                     do_alliance_gifts(device)
                 except Exception as e:
                     log.warning("Lỗi nhận quà liên minh: %s", e)
             # Thu tài nguyên lãnh thổ: 30% tỷ lệ thực hiện
-            if random.random() < 0.30:
+            if random.random() < alliance_territory_prob:
                 try:
                     do_alliance_territory(device)
                 except Exception as e:
                     log.warning("Lỗi thu tài nguyên lãnh thổ: %s", e)
             # Đóng góp công nghệ liên minh: 30% tỷ lệ thực hiện
-            if random.random() < 0.30:
+            if random.random() < alliance_tech_prob:
                 try:
                     do_alliance_tech(device)
                 except Exception as e:
                     log.warning("Lỗi đóng góp công nghệ: %s", e)
             _prepare_world_only(device)
-            remaining_workflows.pop(0)
+            _finish_current_workflow(remaining_workflows, "alliance", "alliance done")
             continue
 
         elif current_wf == "getres":
@@ -1044,14 +1164,14 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             except Exception as e:
                 log.warning("Lỗi lấy tài nguyên nội thành: %s", e)
             _prepare_world_only(device)
-            remaining_workflows.pop(0)
+            _finish_current_workflow(remaining_workflows, "getres", "getres done")
             continue
 
         elif current_wf == "farm":
             # Nếu hàng chờ đã đầy từ trước:
             if dispatched_count >= config.MAX_SLOTS:
                 log.info("Hàng chờ đã đầy (%d/%d). Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
-                remaining_workflows.pop(0)
+                _finish_current_workflow(remaining_workflows, "farm", "queue already full")
                 continue
 
         # Tự động nạp lại devices.yaml mỗi 3 phút (180 giây)
@@ -1062,7 +1182,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
         iteration += 1
         if max_iterations and iteration > max_iterations:
             log.info(
-                "Đã đạt giới hạn %d vòng lặp -> dừng", max_iterations,
+                "Đã đạt giới hạn %d vòng lặp -> dừng. Workflow con lai: %s",
+                max_iterations,
+                remaining_workflows,
             )
             break
 
@@ -1180,8 +1302,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
 
             if dispatched_count >= config.MAX_SLOTS:
                 log.info("Đồng bộ hàng đợi: hàng chờ đã đầy (%d/%d). Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
-                if "farm" in remaining_workflows:
-                    remaining_workflows.remove("farm")
+                _finish_current_workflow(remaining_workflows, "farm", "world badge full")
                 continue
 
 
@@ -1226,8 +1347,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                         dispatched_count = n_sync
                     if n_sync >= config.MAX_SLOTS:
                         log.info("Đồng bộ hàng đợi: hàng chờ đã đầy (%d/%d) sau khi gửi lỗi. Hoàn thành chu trình FARM.", n_sync, config.MAX_SLOTS)
-                        if "farm" in remaining_workflows:
-                            remaining_workflows.remove("farm")
+                        _finish_current_workflow(remaining_workflows, "farm", "sync after dispatch failure full")
                         continue
                 else:
                     log.info(
@@ -1267,15 +1387,20 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             config.ORIGINAL_RESOURCE = config.RESOURCE_TAB
 
         if config.ORIGINAL_RESOURCE == "cycle":
-            if not getattr(config, "CYCLE_RESOURCES", None):
+            if False and not getattr(config, "CYCLE_RESOURCES", None):
                 config.CYCLE_RESOURCES = ["corn", "stone", "gold", "wood"]
                 random.shuffle(config.CYCLE_RESOURCES)
                 log.info("Khởi tạo chu kỳ tài nguyên ngẫu nhiên cho nhân vật: %s", config.CYCLE_RESOURCES)
+
+            if not getattr(config, "CYCLE_RESOURCES", None):
+                config.CYCLE_RESOURCES = list(_CYCLE_FARM_RESOURCES)
 
             if dispatched_count < len(config.CYCLE_RESOURCES):
                 current_resource = config.CYCLE_RESOURCES[dispatched_count]
             else:
                 current_resource = random.choice(config.CYCLE_RESOURCES)
+
+            current_resource = _cycle_farm_resource_for_dispatch(dispatched_count)
 
             if config.RESOURCE_TAB != current_resource:
                 config.RESOURCE_TAB = current_resource
@@ -1328,8 +1453,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             )
             if dispatched_count >= config.MAX_SLOTS:
                 log.info("Hàng chờ đã đầy (%d/%d) sau khi gửi quân thành công. Hoàn thành chu trình FARM.", dispatched_count, config.MAX_SLOTS)
-                if "farm" in remaining_workflows:
-                    remaining_workflows.remove("farm")
+                _finish_current_workflow(remaining_workflows, "farm", "dispatch success full")
                 continue
 
             # Cơ chế vào city rồi lại về world (tránh bám đuôi camera)
@@ -1353,14 +1477,15 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
 
         if result.slots_full:
             log.info("Hàng chờ đã đầy (slots_full) được phát hiện bởi handler. Hoàn thành chu trình FARM.")
-            if "farm" in remaining_workflows:
-                remaining_workflows.remove("farm")
+            _finish_current_workflow(remaining_workflows, "farm", "handler slots_full")
             continue
 
         pause(result.sleep_after, result.sleep_after + 0.5)
 
     log.info(
-        "Bot dừng. Tổng số lượt đã gửi quân: %d", dispatched_count,
+        "Bot dừng. Tổng số lượt đã gửi quân: %d. Workflow con lai: %s",
+        dispatched_count,
+        remaining_workflows,
     )
 
 
@@ -1377,7 +1502,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--resource",
-        choices=list(config._RESOURCE_TAB_X_PCT.keys()) + ["ngo", "food", "crop"],
+        choices=list(config._RESOURCE_TAB_X_PCT.keys())
+        + ["cycle_random", "cycle_1", "cycle_2", "cycle_3", "ngo", "food", "crop"],
         default=config.RESOURCE_TAB,
         help=(
             f"Resource tab to gather (default '{config.RESOURCE_TAB}'). "
@@ -1388,6 +1514,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-slots", type=int, default=config.MAX_SLOTS,
         help=f"March-queue capacity (default {config.MAX_SLOTS}).",
+    )
+    parser.add_argument(
+        "--farm-scenario",
+        choices=["random", "1", "2", "3"],
+        default=config.FARM_SCENARIO,
+        help="Cycle farm scenario: random, 1, 2, or 3.",
     )
     parser.add_argument(
         "--skip-level-adjust", action="store_true",
@@ -1419,7 +1551,13 @@ def main(argv: list[str] | None = None) -> int:
     config.MAX_SLOTS = args.max_slots
     res_map = {"ngo": "corn", "food": "corn", "crop": "corn"}
     args.resource = res_map.get(args.resource, args.resource)
-    config.RESOURCE_TAB = args.resource
+    from core.config_io import split_resource_and_farm_scenario
+    resource, farm_scenario = split_resource_and_farm_scenario(
+        args.resource,
+        args.farm_scenario,
+    )
+    config.RESOURCE_TAB = resource
+    config.FARM_SCENARIO = farm_scenario
     config.SKIP_LEVEL_ADJUST = args.skip_level_adjust
     config.TURN_WAIT_SEC = args.turn_wait_min * 60
     log.info(

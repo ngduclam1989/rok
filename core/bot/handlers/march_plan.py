@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 
@@ -10,6 +9,7 @@ from core.device import Device
 
 from ..constants import CAPTURES_DIR
 from ..geometry import ocr_text_in, pct_to_px, tap_template
+from ..signals import pause
 from ..state import StepResult
 from .network import check_and_handle_network_popup
 
@@ -74,5 +74,5 @@ def handle_march_plan(
     for cx_pct, cy_pct in ((96.0, 8.0), (97.0, 5.0)):
         x, y = pct_to_px(screen, cx_pct, cy_pct)
         device.tap(x, y)
-        time.sleep(0.4)
+        pause(0.4)
     return StepResult(False, "ép đóng panel", sleep_after=1.5)

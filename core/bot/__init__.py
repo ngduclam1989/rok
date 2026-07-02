@@ -40,7 +40,7 @@ from .state import S, StepResult
 _CONFIG_NAMES = frozenset({
     "MAX_SLOTS", "TARGET_LEVEL", "RESOURCE_TAB",
     "SKIP_LEVEL_ADJUST", "TURN_WAIT_SEC", "GATHER_MIN_SEC",
-    "ONLY_CLAIM_VIP",
+    "ONLY_CLAIM_VIP", "FARM_SCENARIO",
 })
 
 
@@ -71,6 +71,7 @@ _sys.modules[__name__].__class__ = _BotPackage
 MAX_SLOTS = _config.MAX_SLOTS
 TARGET_LEVEL = _config.TARGET_LEVEL
 RESOURCE_TAB = _config.RESOURCE_TAB
+FARM_SCENARIO = _config.FARM_SCENARIO
 SKIP_LEVEL_ADJUST = _config.SKIP_LEVEL_ADJUST
 TURN_WAIT_SEC = _config.TURN_WAIT_SEC
 GATHER_MIN_SEC = _config.GATHER_MIN_SEC
@@ -78,6 +79,7 @@ GATHER_MIN_SEC = _config.GATHER_MIN_SEC
 __all__ = [
     "GATHER_MIN_SEC",
     "MAX_SLOTS",
+    "FARM_SCENARIO",
     "RESOURCE_TAB",
     "S",
     "SKIP_LEVEL_ADJUST",

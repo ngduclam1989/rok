@@ -51,10 +51,9 @@ def cmd_bot(args: argparse.Namespace) -> int:
 
     import sys
     import random
-    from core.config_io import load_bot_fleet_config
+    from core.config_io import load_bot_fleet_config, split_resource_and_farm_scenario
     from core.bot.bluestack import start_bluestack, stop_bluestack, get_instance_name_by_port, is_port_open
-    from core.bot.signals import install_signal_handler, install_pause_hotkey, should_stop, sleep_with_stop_check_exact
-    import time
+    from core.bot.signals import install_signal_handler, install_pause_hotkey, should_stop, sleep_with_stop_check_exact, pause
 
     install_signal_handler()
     install_pause_hotkey()
@@ -72,6 +71,10 @@ def cmd_bot(args: argparse.Namespace) -> int:
         resource = args.resource
         if resource is None:
             resource = dev_cfg.resource if dev_cfg else "wood"
+
+        farm_scenario = getattr(args, "farm_scenario", None)
+        if farm_scenario is None:
+            farm_scenario = dev_cfg.farm_scenario if dev_cfg else "random"
         
         target_level = args.target_level
         if target_level is None:
@@ -96,7 +99,12 @@ def cmd_bot(args: argparse.Namespace) -> int:
         bot_engine.MAX_SLOTS = max_slots
         res_map = {"ngo": "corn", "food": "corn", "crop": "corn"}
         resource = res_map.get(resource, resource)
+        resource, farm_scenario = split_resource_and_farm_scenario(
+            resource,
+            farm_scenario,
+        )
         bot_engine.RESOURCE_TAB = resource
+        bot_engine.FARM_SCENARIO = str(farm_scenario).strip().lower()
         bot_engine.SKIP_LEVEL_ADJUST = skip_level_adjust
         bot_engine.TURN_WAIT_SEC = turn_wait_min * 60
         bot_engine.ONLY_CLAIM_VIP = only_claim_vip
@@ -150,7 +158,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
                     logging.error("Không thể khởi động hoặc kết nối Bluestacks cho %s", serial)
                     return 1
                 logging.info("Đã bật Bluestacks thành công. Chờ thêm 10s cho giả lập ổn định...")
-                time.sleep(10.0)
+                pause(10.0)
             else:
                 logging.info("Bluestacks đã bật sẵn. Bỏ qua chờ 10s và chuyển sang B2.")
         else:
@@ -173,7 +181,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
                     stop_bluestack(serial)
                 else:
                     logging.info("B5: Kết thúc bot. Giữ nguyên trạng thái Bluestacks (không tắt).")
-                time.sleep(5.0)
+                pause(5.0)
 
         if only_claim_vip or should_stop():
             break

@@ -8,7 +8,6 @@ main loop can reset them at each new turn.
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 
@@ -18,6 +17,7 @@ from core.device import Device
 from .. import config
 from ..geometry import region_pct_to_px, tap_template
 from ..readers import read_level_in_panel
+from ..signals import pause
 from ..state import StepResult
 from .network import check_and_handle_network_popup
 
@@ -148,7 +148,7 @@ def handle_search_panel(
         "Chạm tab %s @(%d,%d)", resource.upper(), tab_x, tab_y,
     )
     device.long_tap(tab_x, tab_y, duration_ms=200)
-    time.sleep(1.2)
+    pause(1.2)
     try:
         screen = device.snapshot()
     except Exception:
@@ -237,7 +237,7 @@ def handle_search_panel(
             )
             for _ in range(taps):
                 device.long_tap(*pos, duration_ms=120)
-                time.sleep(0.25)
+                pause(0.25)
             LAST_LEVEL_SEEN = level
             LAST_ADJUST_DIR = action
             # sleep_after dài hơn (2.5s thay vì 1.0s) để slider có
@@ -252,7 +252,7 @@ def handle_search_panel(
     # mới chỉnh xong. Đợi 1.2s cho UI ổn định rồi mới tap, tránh tap
     # vào lúc animation slider/panel còn đang chạy -> game bỏ qua.
     log.info("Chạm TÌM KIẾM (chờ 0.5s cho UI ổn định)")
-    time.sleep(0.5)
+    pause(0.5)
     pos = tap_template(
         device, screen, "btn_tim_kiem.png", 0.75,
         region_pct=(20, 55, 95, 80),

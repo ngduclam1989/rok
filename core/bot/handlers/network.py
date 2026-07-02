@@ -8,15 +8,15 @@ subsequent taps don't land on a covered UI.
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 
 from core.device import Device
 
-from ..detection import is_network_popup, is_gems_shop
+from ..detection import is_gems_shop, classify_modal_popup, locate_modal_button
 from ..geometry import pct_to_px
-from ..state import StepResult
+from ..signals import pause
+from ..state import S, StepResult
 
 log = logging.getLogger(__name__)
 
@@ -25,10 +25,25 @@ def handle_network_error(
     device: Device, screen: np.ndarray,
 ) -> StepResult:
     """Main-loop handler for the network-disconnect modal."""
+    modal_state = classify_modal_popup(screen, debug=True)
+    if modal_state == S.EXIT_DIALOG:
+        log.warning("Handler network nhung thay popup thoat game -> cham HUY")
+        pos = locate_modal_button(screen, "cancel")
+        if pos is None:
+            x, y = pct_to_px(screen, 65.0, 70.0)
+        else:
+            x, y = pos
+        device.tap(x, y)
+        return StepResult(True, "da huy popup thoat game", sleep_after=1.5)
+
     log.warning(
         "Popup mất kết nối -> chạm XÁC NHẬN + chờ 20s reconnect",
     )
-    x, y = pct_to_px(screen, 50.0, 67.0)
+    pos = locate_modal_button(screen, "confirm")
+    if pos is None:
+        x, y = pct_to_px(screen, 50.0, 67.0)
+    else:
+        x, y = pos
     device.tap(x, y)
     return StepResult(
         True, "đã chạm XÁC NHẬN, đang reconnect", sleep_after=20.0,
@@ -47,14 +62,30 @@ def check_and_handle_network_popup(
     loop so the state machine can re-detect.
     """
     # 1. Kiểm tra popup mất kết nối mạng
-    if is_network_popup(screen):
+    modal_state = classify_modal_popup(screen, debug=True)
+    if modal_state == S.EXIT_DIALOG:
+        log.warning("Popup thoat game xuat hien giua chung -> cham HUY")
+        pos = locate_modal_button(screen, "cancel")
+        if pos is None:
+            x, y = pct_to_px(screen, 65.0, 70.0)
+        else:
+            x, y = pos
+        device.tap(x, y)
+        pause(1.5)
+        return True
+
+    if modal_state == S.NETWORK_ERROR:
         log.warning(
             "Popup ngắt kết nối xuất hiện giữa chừng "
             "-> chạm XÁC NHẬN + chờ 20s",
         )
-        x, y = pct_to_px(screen, 50.0, 67.0)
+        pos = locate_modal_button(screen, "confirm")
+        if pos is None:
+            x, y = pct_to_px(screen, 50.0, 67.0)
+        else:
+            x, y = pos
         device.tap(x, y)
-        time.sleep(20.0)
+        pause(20.0)
         return True
 
     # 2. Kiểm tra cửa hàng đá quý / nạp tiền xuất hiện bất ngờ
@@ -66,7 +97,7 @@ def check_and_handle_network_popup(
             log.warning("Không thể gửi phím BACK qua ADB: %s, thử chạm góc trên bên trái", e)
             x, y = pct_to_px(screen, 5.0, 5.0)
             device.tap(x, y)
-        time.sleep(2.5)
+        pause(2.5)
         return True
 
     return False

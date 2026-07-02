@@ -12,13 +12,13 @@ viewport is a no-op.
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 
 from core.device import Device
 
 from ..detection import is_lock_screen
+from ..signals import pause
 from ..state import StepResult
 
 log = logging.getLogger(__name__)
@@ -52,9 +52,9 @@ def handle_lock_screen(device: Device, screen: np.ndarray) -> StepResult:
             px, py, direction, tx, ty,
         )
         device.tap(px, py)
-        time.sleep(0.25)               # let the padlock render
+        pause(0.25)                    # let the padlock render
         device.swipe(px, py, tx, ty, 350)
-        time.sleep(1.5)                # let the game process the gesture
+        pause(1.5)                     # let the game process the gesture
 
         try:
             cur = device.snapshot()

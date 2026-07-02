@@ -131,6 +131,7 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     bot_engine.TARGET_LEVEL = c.target_level
                     bot_engine.MAX_SLOTS = c.max_slots
                     bot_engine.RESOURCE_TAB = c.resource
+                    bot_engine.FARM_SCENARIO = c.farm_scenario
                     bot_engine.SKIP_LEVEL_ADJUST = c.skip_level_adjust
                     bot_engine.TURN_WAIT_SEC = c.turn_wait_min * 60
 

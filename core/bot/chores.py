@@ -38,6 +38,7 @@ from .detection import is_lock_screen, detect_state
 from .state import S
 from .geometry import ocr_text_in, pct_to_px, region_pct_to_px
 from .handlers import handle_exit_dialog, handle_lock_screen
+from .signals import pause
 
 log = logging.getLogger(__name__)
 
@@ -146,7 +147,7 @@ def _ensure_alliance_button_visible(device: Device, screen) -> np.ndarray:
         label="Expand Menu",
     )
     device.tap(center_x, center_y)
-    time.sleep(1.0)
+    pause(1.0)
     
     # Chụp lại màn hình để xác nhận lại
     try:
@@ -205,7 +206,7 @@ def _wake_and_unlock(device: Device):
         handle_lock_screen(device, screen)
     except Exception:
         log.exception("[việc vặt] handler mở khoá crash")
-    time.sleep(2.5)
+    pause(2.5)
 
     try:
         screen = device.snapshot()
@@ -239,7 +240,7 @@ def _close_to_world(device: Device, max_back: int = 5) -> bool:
             device.key("BACK")
         except Exception:
             pass
-        time.sleep(1.4)
+        pause(1.4)
         try:
             screen = device.snapshot()
         except Exception:
@@ -255,7 +256,7 @@ def _close_to_world(device: Device, max_back: int = 5) -> bool:
         ):
             log.info("[việc vặt] gặp popup Thoát -> chạm HUỶ về world")
             handle_exit_dialog(device, screen)
-            time.sleep(1.5)
+            pause(1.5)
             return True
     log.info("[việc vặt] đóng panel xong (không gặp popup Thoát)")
     return False
@@ -281,7 +282,7 @@ def _ensure_city_screen(device: Device, screen: np.ndarray) -> np.ndarray | None
             device.tap(*pos)
         else:
             device.tap(int(w * 0.06), int(h * 0.912))
-        time.sleep(2.5)
+        pause(2.5)
         try:
             screen = device.snapshot()
         except Exception:
@@ -307,7 +308,7 @@ def _ensure_city_screen(device: Device, screen: np.ndarray) -> np.ndarray | None
             device.tap(*pos)
         else:
             device.tap(int(w * 0.06), int(h * 0.912))
-        time.sleep(2.5)
+        pause(2.5)
         try:
             screen = device.snapshot()
         except Exception:
@@ -511,7 +512,7 @@ def _wait_for_panel(
         if check_fn(screen):
             log.info("[việc vặt] đã thấy %s", name)
             return True
-        time.sleep(0.6)
+        pause(0.6)
     log.warning(
         "[việc vặt] không thấy %s sau %.1fs -> abort", name, max_wait_s,
     )

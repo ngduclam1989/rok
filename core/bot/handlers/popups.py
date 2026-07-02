@@ -7,6 +7,7 @@ import numpy as np
 
 from core.device import Device
 
+from ..detection import locate_modal_button
 from ..geometry import pct_to_px
 from ..state import StepResult
 
@@ -15,7 +16,11 @@ log = logging.getLogger(__name__)
 
 def handle_exit_dialog(device: Device, screen: np.ndarray) -> StepResult:
     log.info("Hộp thoại thoát -> chạm HUỶ")
-    x, y = pct_to_px(screen, 65.0, 70.0)
+    pos = locate_modal_button(screen, "cancel")
+    if pos is None:
+        x, y = pct_to_px(screen, 65.0, 70.0)
+    else:
+        x, y = pos
     device.tap(x, y)
     return StepResult(True, "đã huỷ thoát", sleep_after=1.5)
 

@@ -19,6 +19,9 @@ TÌM KIẾM. Different accounts have different kingdom barbarian levels."""
 RESOURCE_TAB: str = "wood"
 """Which resource tab to select in the search panel."""
 
+FARM_SCENARIO: str = "random"
+"""Cycle farm scenario: random, 1, 2, or 3."""
+
 SKIP_LEVEL_ADJUST: bool = False
 """When True, skip the OCR+slider step and trust whatever level the
 panel currently shows."""
@@ -50,10 +53,12 @@ DELAY_AFTER_DISPATCH_MIN: int = 10
 DELAY_AFTER_DISPATCH_MAX: int = 20
 ENABLE_CITY_WORLD_TOGGLE: bool = True
 CITY_WORLD_TOGGLE_PROBABILITY: float = 0.5
+ALLIANCE_GIFTS_PROBABILITY: float = 0.30
+ALLIANCE_TERRITORY_PROBABILITY: float = 0.30
+ALLIANCE_TECH_PROBABILITY: float = 0.30
 ENABLE_INPUT_LOCK: bool = False
 SAVE_DEBUG_IMAGES: bool = False
 ONLY_CLAIM_VIP: bool = False
 ENABLE_VIP_CLAIM: bool = False
 AUTO_CLOSE_BLUESTACK: bool = False
-
 

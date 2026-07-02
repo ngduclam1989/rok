@@ -14,6 +14,7 @@ from core import ocr
 from core.device import Device
 
 from ..geometry import pct_to_px, region_pct_to_px, tap_template, tap_template_debug, ocr_text_in, try_template
+from ..signals import pause
 from ..state import StepResult
 from ..capture import save_debug_image
 from .network import check_and_handle_network_popup
@@ -28,7 +29,7 @@ _SWITCH_ACCOUNT_BUTTON_REGION_REF = (1082, 205, 799, 145)
 _CHANGE_ACC_BUTTON_REGION_REF = (942, 561, 741, 383)
 _ACCOUNT_DROPDOWN_LIST_REGION_REF = (712, 288, 1624, 979)
 _ACCOUNT_LOGIN_CONFIRM_REGION_REF = (712, 281, 1599, 790)
-_LOGIN_BUTTON_REGION_REF = (778, 565, 1562, 660)
+_LOGIN_BUTTON_REGION_REF = (818, 575, 1475, 641)
 _ACCOUNT_TEXT_NEEDLES = ("tai khoan", "taikhoan", "tai khon", "tai khe")
 _ACCOUNTS_FILE = Path(__file__).resolve().parents[3] / "account.txt"
 _USED_ACCOUNTS: set[str] = set()
@@ -116,7 +117,7 @@ def handle_world(
 def _open_settings_screen(device: Device, flow_name: str) -> np.ndarray | None:
     """Open Avatar -> Settings and return the settings screen."""
     log.info("Đang đợi 10s cho các đạo quân ổn định trước khi %s...", flow_name)
-    time.sleep(10.0)
+    pause(10.0)
 
     try:
         screen = device.snapshot()
@@ -135,7 +136,7 @@ def _open_settings_screen(device: Device, flow_name: str) -> np.ndarray | None:
         return None
 
     log.info("Tìm thấy Avatar -> Đã chạm để mở bảng thông tin người chơi. Chờ ổn định 5s...")
-    time.sleep(5.0)
+    pause(5.0)
 
     # 2. Quét tìm và chạm nút Cài đặt
     try:
@@ -154,7 +155,7 @@ def _open_settings_screen(device: Device, flow_name: str) -> np.ndarray | None:
         return None
 
     log.info("Đã tìm thấy và chạm nút Cài đặt tại: %r. Chờ ổn định giao diện Cài đặt trong 5s...", pos_settings)
-    time.sleep(5.0)
+    pause(5.0)
 
     try:
         return device.snapshot()
@@ -180,7 +181,7 @@ def _open_character_menu(device: Device, flow_name: str) -> np.ndarray | None:
         return None
 
     log.info("Đã tìm thấy và chạm nút Nhân vật tại: %r. Chờ 10s...", pos_char)
-    time.sleep(10.0)
+    pause(10.0)
 
     # Chụp ảnh màn hình mới sau khi chạm Nhân vật và chờ 10s
     try:
@@ -655,7 +656,7 @@ def handle_switch_character(device: Device) -> bool:
         log.warning("Không lưu được ảnh debug ngôi sao: %s", err)
 
     device.tap(x_click, y_click)
-    time.sleep(5.0)
+    pause(5.0)
 
     # 5. Quét tìm và chạm nút Yes
     try:
@@ -674,5 +675,5 @@ def handle_switch_character(device: Device) -> bool:
         return False
 
     log.info("Đã tìm thấy và chạm nút Yes tại: %r. Hoàn thành chuỗi chuyển nhân vật!", pos_yes)
-    time.sleep(3.0)
+    pause(3.0)
     return True

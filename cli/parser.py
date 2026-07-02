@@ -113,7 +113,11 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument(
         "--resource",
-        choices=["barb", "corn", "wood", "stone", "gold", "cycle", "ngo", "food", "crop"],
+        choices=[
+            "barb", "corn", "wood", "stone", "gold", "cycle",
+            "cycle_random", "cycle_1", "cycle_2", "cycle_3",
+            "ngo", "food", "crop",
+        ],
         default=None,
         help=(
             "Tab tài nguyên (mặc định lấy từ devices.yaml hoặc 'wood'). "
@@ -127,6 +131,15 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         help=(
             "Sức chứa hàng chờ (mặc định lấy từ devices.yaml hoặc 4, "
             "sẽ tự dò qua OCR huy hiệu)."
+        ),
+    )
+    p.add_argument(
+        "--farm-scenario",
+        choices=["random", "1", "2", "3"],
+        default=None,
+        help=(
+            "Kich ban farm khi --resource cycle: random, 1, 2, hoac 3 "
+            "(mac dinh lay tu devices.yaml hoac random)."
         ),
     )
     p.add_argument(

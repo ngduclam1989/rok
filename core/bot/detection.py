@@ -1,9 +1,9 @@
-"""State detection — classify the current screen into one of ``S``.
+"""State detection - classify the current screen into one of ``S``.
 
 Hot path is template-only (no OCR). On the test phone a template
 match is ~100-500ms vs ~25-30s for a full-image OCR pass, so every
 common state is detected by templates alone. The OCR phases only
-run when no template matched — meaning we're likely in a popup /
+run when no template matched - meaning we're likely in a popup /
 dialog / lock screen / army composition view.
 """
 from __future__ import annotations
@@ -15,24 +15,130 @@ import numpy as np
 from core import ocr
 from core.device import Device
 
+from .capture import save_debug_image
 from .geometry import ocr_text_in, region_pct_to_px, try_template
 from .state import S
 
 log = logging.getLogger(__name__)
 
 
+def _ocr_hits_in_region(
+    screen: np.ndarray,
+    region_pct: tuple[float, float, float, float],
+    min_confidence: float = 0.35,
+) -> list[tuple[str, float, int, int]]:
+    region_px = region_pct_to_px(screen, region_pct)
+    hits = ocr.find_all(screen, region=region_px)
+    out = []
+    for hit in hits:
+        if hit.confidence < min_confidence:
+            continue
+        norm = ocr.strip_diacritics(hit.text).lower().strip()
+        out.append((norm, hit.confidence, hit.cx, hit.cy))
+    return out
+
+
+def _texts_contain(texts: list[str], needles: tuple[str, ...]) -> bool:
+    return any(any(needle in text for needle in needles) for text in texts)
+
+
+def is_exit_dialog(screen: np.ndarray, *, debug: bool = False) -> bool:
+    """Compatibility wrapper around the single modal classifier."""
+    return classify_modal_popup(screen, debug=debug) == S.EXIT_DIALOG
+
+
+def classify_modal_popup(screen: np.ndarray, *, debug: bool = True) -> S | None:
+    """OCR modal text once and classify exit vs network at the same level."""
+    region_pct = (15, 15, 85, 80)
+    hits = _ocr_hits_in_region(screen, region_pct, min_confidence=0.35)
+    texts = [text for text, _conf, _x, _y in hits]
+    joined = " | ".join(texts)
+
+    has_exit_text = _texts_contain(
+        texts,
+        ("thoat tro", "thoat ung", "thoat game", "roi khoi", "exit"),
+    )
+    has_cancel = _texts_contain(texts, ("huy", "cancel", "hy"))
+    has_confirm = _texts_contain(texts, ("xac nh", "confirm"))
+    has_network_text = _texts_contain(
+        texts,
+        (
+            "ngat ket noi", "ngt kt ni", "da ngat", "mat ket noi",
+            "mt kt ni", "mang khong on", "khong on dinh", "ket noi lai",
+            "network unstable", "network un", "connection lost", "error 2",
+        ),
+    )
+
+    is_exit = has_exit_text or (has_cancel and has_confirm)
+    is_network = has_network_text and not has_cancel
+    state = S.EXIT_DIALOG if is_exit else S.NETWORK_ERROR if is_network else None
+
+    if debug and (state is not None or has_cancel or has_confirm or has_network_text):
+        log.info(
+            "[detect-popup] modal=%s exit_text=%s network_text=%s cancel=%s confirm=%s hits=%s",
+            state.value if state is not None else "none",
+            has_exit_text,
+            has_network_text,
+            has_cancel,
+            has_confirm,
+            joined or "(none)",
+        )
+        if state is not None:
+            region_px = region_pct_to_px(screen, region_pct)
+            save_debug_image(
+                screen,
+                "detect",
+                subdir="popup_debug",
+                prefix=state.value,
+                rects=[region_px],
+                label=f"{state.value} hits={joined[:80]}",
+            )
+    return state
+
+
+def locate_modal_button(screen: np.ndarray, button: str) -> tuple[int, int] | None:
+    """Find a modal button by OCR text and return its screen coordinates."""
+    button = button.strip().lower()
+    if button == "cancel":
+        needles = ("huy", "hy", "cancel")
+    elif button == "confirm":
+        needles = ("xac nh", "xac nhn", "confirm")
+    else:
+        needles = (button,)
+
+    hits = _ocr_hits_in_region(screen, (15, 15, 85, 80), min_confidence=0.30)
+    matches = [
+        (text, conf, x, y)
+        for text, conf, x, y in hits
+        if any(needle in text for needle in needles)
+    ]
+    if not matches:
+        return None
+
+    text, conf, x, y = max(matches, key=lambda hit: hit[1])
+    log.info(
+        "[detect-popup] button=%s hit=%r conf=%.2f at=(%d,%d)",
+        button,
+        text,
+        conf,
+        x,
+        y,
+    )
+    return x, y
+
+
 def is_lock_screen(screen: np.ndarray) -> bool:
     """Detect the RoK in-game lock screen.
 
     Two signals must coincide to avoid false positives on dim panels
-    (e.g. the "Quân mới" army composition view):
+    (e.g. the "Quan moi" army composition view):
 
-      A. Centre is very dark (avg RGB-sum < 200) — the lock overlay
+      A. Centre is very dark (avg RGB-sum < 200) - the lock overlay
          dims the entire viewport.
       B. At least 2 of the sampled centre pixels carry the distinctive
          BLUE colour of the padlock icon (high B, very low R, mid G).
 
-    Fallback: pitch-black centre (avg < 80) also counts as locked —
+    Fallback: pitch-black centre (avg < 80) also counts as locked -
     handles the screen-off state where the padlock hasn't rendered yet.
     """
     h, w = screen.shape[:2]
@@ -58,9 +164,9 @@ def is_lock_screen(screen: np.ndarray) -> bool:
 def _has_tile_info_popup(screen: np.ndarray) -> bool:
     """Cheap pixel-color check for ANY tile_info popup over world view.
 
-    Resource tiles (with THU THẬP) are detected by the btn_thu_thap
+    Resource tiles (with THU THAP) are detected by the btn_thu_thap
     template; barbarian / empty-land tiles use the same popup frame
-    WITHOUT THU THẬP and would otherwise be misclassified as WORLD
+    WITHOUT THU THAP and would otherwise be misclassified as WORLD
     (because the kinh_luc icon stays visible behind the popup).
 
     The cream-coloured popup frame produces many "light" pixels in
@@ -80,23 +186,8 @@ def _has_tile_info_popup(screen: np.ndarray) -> bool:
 
 
 def is_network_popup(screen: np.ndarray) -> bool:
-    """Fast OCR check for the "Đã ngắt kết nối mạng" popup banner.
-
-    The region is small (centre-top, 30-70% x by 10-28% y) so OCR
-    takes ~0.2-0.4s. Call this after every snapshot inside long
-    handlers — the popup can appear at any time and overlay the UI,
-    making subsequent taps land on the wrong elements.
-    """
-    return ocr_text_in(
-        screen, (30, 10, 70, 28),
-        (
-            "NGAT KET NOI", "Ngat ket noi", "ngat ket noi",
-            "DA NGAT", "Da ngat",
-            "Network unstable", "Network un",
-            "connection lost", "Connection lost",
-        ),
-        threshold=0.4,
-    )
+    """Compatibility wrapper around the single modal classifier."""
+    return classify_modal_popup(screen, debug=True) == S.NETWORK_ERROR
 
 
 def is_gems_shop(screen: np.ndarray) -> bool:
@@ -124,17 +215,17 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
 
     # ---- Phase 1: template-only fast path ---------------------------
 
-    # 1a. MARCH_PLAN (composition view): HÀNH QUÂN at bottom-right.
+    # 1a. MARCH_PLAN (composition view): HANH QUAN at bottom-right.
     if try_template(device, screen, "btn_hanh_quan.png", 0.78,
                     region_pct=(55, 75, 100, 100)):
         return S.MARCH_PLAN
 
-    # 1b. MARCH_PLAN (initial form): Quân mới at top-right.
+    # 1b. MARCH_PLAN (initial form): Quan moi at top-right.
     if try_template(device, screen, "btn_quan_moi.png", 0.80,
                     region_pct=(60, 0, 100, 30)):
         return S.MARCH_PLAN
 
-    # 2. TILE_INFO: THU THẬP button.
+    # 2. TILE_INFO: THU THAP button.
     # CHECKED BEFORE SEARCH_PANEL because btn_slider_minus spuriously
     # matches on tile_info's slider-like UI (conf ~0.72). thu_thap
     # matches at ~1.00 on tile_info vs ~0.5 on search_panel, so
@@ -143,7 +234,7 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
                     region_pct=(55, 30, 95, 80)):
         return S.TILE_INFO
 
-    # 3. SEARCH_PANEL via TÌM KIẾM + slider. Threshold for tim_kiem
+    # 3. SEARCH_PANEL via TIM KIEM + slider. Threshold for tim_kiem
     # is raised to 0.75 to prevent false matches with background.
     if try_template(device, screen, "btn_tim_kiem.png", 0.75,
                     region_pct=(5, 50, 85, 90)):
@@ -165,7 +256,7 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
         return S.SEARCH_PANEL
 
     # 4. CITY: map_toggle (globe icon) at bottom-left.
-    # MUST come before kinh_luc check — kinh_luc threshold is low
+    # MUST come before kinh_luc check - kinh_luc threshold is low
     # and sometimes false-matches build-menu icons.
     if try_template(device, screen, "btn_map_toggle.png", 0.88,
                     region_pct=(0, 80, 15, 100)):
@@ -175,13 +266,13 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
     if try_template(device, screen, "btn_kinh_luc.png", 0.55,
                     region_pct=(0, 70, 10, 85)):
         if _has_tile_info_popup(screen):
-            log.info("Phát hiện kính lúp + popup -> TILE_INFO")
+            log.info("Phat hien kinh lup + popup -> TILE_INFO")
             return S.TILE_INFO
         return S.WORLD
 
     # ---- Phase 2a: REGION-ONLY OCR for SEARCH_PANEL -----------------
     # Cheap pre-check before the expensive full-image OCR. If we see
-    # ≥2 of the 5 tab labels in the bottom strip, it's the search panel.
+    # >=2 of the 5 tab labels in the bottom strip, it's the search panel.
     bottom_strip = region_pct_to_px(screen, (0, 85, 100, 100))
     bottom_hits = ocr.find_all(screen, region=bottom_strip)
     tab_keywords = (
@@ -196,32 +287,23 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
         if any(k in norm for k in tab_keywords):
             matched += 1
     if matched >= 2:
-        log.info("OCR thấy %d nhãn tab dưới -> SEARCH_PANEL", matched)
+        log.info("OCR thay %d nhan tab duoi -> SEARCH_PANEL", matched)
         return S.SEARCH_PANEL
 
     # ---- Phase 2b: full-image OCR fallback --------------------------
     ocr.find_all(screen)
 
-    # Cửa hàng đá quý / Nạp tiền (Gems Shop)
+    # Cua hang da quy / Nap tien (Gems Shop)
     if is_gems_shop(screen):
         return S.GEMS_SHOP
 
-    # Network-disconnect popup. Checked EARLY in phase 2 because it's
-    # a fullscreen modal — other phase-2 checks might match its body.
-    if ocr_text_in(screen, (15, 15, 85, 80),
-                   ("Network unstable", "Network un",
-                    "connection lost", "Connection lost",
-                    "Please click CONFIRM", "click CONFIRM",
-                    "Error 2",
-                    "Mang khong on", "Khong on dinh",
-                    "Mat ket noi", "ket noi lai",
-                    "XAC NHAN", "Xac nhan"),
-                   threshold=0.4):
-        return S.NETWORK_ERROR
+    modal_state = classify_modal_popup(screen, debug=True)
+    if modal_state in (S.EXIT_DIALOG, S.NETWORK_ERROR):
+        return modal_state
 
 
 
-    # Army composition (no Quân mới template — distinctive bottom labels).
+    # Army composition (no Quan moi template - distinctive bottom labels).
     if ocr_text_in(screen, (20, 0, 80, 15),
                    ("Quan moi", "QUAN MOI", "Quan m"),
                    threshold=0.3):
@@ -264,7 +346,7 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
                    threshold=0.5):
         return S.LOCK_SCREEN
 
-    # City fallback: "Thời kỳ phong kiến" banner.
+    # City fallback: "Thoi ky phong kien" banner.
     if ocr_text_in(screen, (10, 0, 80, 12),
                    ("phong", "Thi k", "Thoi k", "ky phong"),
                    threshold=0.5):

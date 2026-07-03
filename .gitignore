@@ -25,6 +25,7 @@ data/*.sqlite-wal
 
 # Screenshots debug / ảnh capture lúc bot chạy
 captures/
+core/tmp/
 screenshot_current.png
 screenshot_*.png
 

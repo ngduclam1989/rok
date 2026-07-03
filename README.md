@@ -204,10 +204,39 @@ Moi account chay 2 nhan vat:
 3. Chay het workflow cho `char 2`.
 4. Chuyen sang account tiep theo trong `account.txt`.
 
+Thu tu account duoc tinh theo `account.txt`:
+
+```text
+ngduclam6@gmail.com
+ngduclam29@gmail.com
+ngduclam999@gmail.com
+ngduclam1999@gmail.com
+```
+
+Quy tac chay:
+
+- Neu account dau tien bot nhan dien la dong cuoi danh sach
+  `ngduclam1999@gmail.com`, bot chay nguoc:
+  `lam1999 -> lam999 -> lam29 -> lam6`.
+- Moi truong hop con lai, ke ca khi dang bat dau o account giua danh sach, bot
+  chay xuoi tu dau danh sach:
+  `lam6 -> lam29 -> lam999 -> lam1999`.
+
+Voi thu tu hien tai cua anh, chu trinh day du la:
+
+```text
+lam6 char 1  -> lam6 char 2
+lam29 char 1 -> lam29 char 2
+lam999 char 1 -> lam999 char 2
+lam1999 char 1 -> lam1999 char 2
+quay ve lam6 -> cho load on dinh -> force-stop com.rok.gp.vn -> dung bot
+```
+
 Khi switch account tra ve:
 
 - `switched`: account tiep theo thanh cong, quay lai `char 1`.
-- `wrapped`: da quay lai account dau tien, bot cho load on dinh roi
+- `wrapped`: da quay lai account dau tien trong thu tu chay. Voi danh sach cua
+  anh la quay ve `ngduclam6@gmail.com`, bot cho load on dinh roi
   `device.shutdown()`.
 - `done`: khong con account tiep theo, bot `device.shutdown()`.
 

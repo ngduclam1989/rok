@@ -143,7 +143,14 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                         logging.error("Lỗi xảy ra khi đang chạy bot trên thiết bị %s: %s", c.name, e)
                 finally:
                     if device is not None:
-                        device.close()
+                        if getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120) == 0:
+                            logging.info(
+                                "[%s] B5: CYCLE_WAIT_MIN = 0 -> force-stop game before exiting bot.",
+                                c.name,
+                            )
+                            device.shutdown()
+                        else:
+                            device.close()
                     # B5: sau khi chạy xong hoặc gặp bất kỳ lỗi gì, dọn dẹp và đóng Bluestacks nếu cấu hình yêu cầu
                     if is_bluestacks:
                         if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):

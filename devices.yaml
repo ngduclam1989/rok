@@ -14,8 +14,8 @@
 
 # Cấu hình mặc định, áp cho mọi máy không override trong block 'bot:'.
 defaults:
-  # resource: wood           # barb / corn / wood / stone / gold / cycle_random / cycle_1 / cycle_2 / cycle_3
-  resource: cycle_random   # Random 1 trong 3 kịch bản farm cycle
+  # resource: wood           # barb / corn / wood / stone / gold / cycle_random / cycle_1 / cycle_2 / cycle_3 / cycle_4 / cycle_5
+  resource: cycle_random   # Random 1 trong 5 kịch bản farm cycle
   target_level: 5
   max_slots: 5
   skip_level_adjust: true

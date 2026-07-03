@@ -42,7 +42,7 @@ def split_resource_and_farm_scenario(
     scenario = str(farm_scenario or "random").strip().lower()
     if r in ("cycle_random", "cycle-random", "cycle:random", "cyclerandom"):
         return "cycle", "random"
-    for sid in ("1", "2", "3"):
+    for sid in ("1", "2", "3", "4", "5"):
         if r in (f"cycle_{sid}", f"cycle-{sid}", f"cycle:{sid}", f"cycle{sid}"):
             return "cycle", sid
     return r, scenario
@@ -438,11 +438,11 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
                 f"resource='{resource}' không hợp lệ. "
                 f"Phải là một trong: {sorted(_VALID_RESOURCES)}",
             )
-        if farm_scenario not in {"random", "1", "2", "3"}:
+        if farm_scenario not in {"random", "1", "2", "3", "4", "5"}:
             raise ValueError(
                 f"Thiết bị {d.get('name', d['serial'])}: "
                 f"farm_scenario='{farm_scenario}' không hợp lệ. "
-                "Phải là một trong: random, 1, 2, 3",
+                "Phải là một trong: random, 1, 2, 3, 4, 5",
             )
 
         out.append(BotDeviceConfig(

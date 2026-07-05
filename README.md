@@ -88,7 +88,7 @@ defaults:
   turn_wait_min: 60
   control_mode: scrcpy
   enable_vip_claim: true
-  cycle_wait_min: 0
+  cycle_wait_min: 60
   cycle_wait_variance_min: 10
   alliance_gifts_probability: 1.0
   alliance_territory_probability: 1.0
@@ -249,15 +249,15 @@ VIEC VAT:
 lam1999 -> lam999 -> lam29 -> lam6
 
 XONG:
-dang o lam6 -> quay lai lam1999 -> doc timer Doi Quan acc cuoi
--> force-stop com.rok.gp.vn -> B6 ngu toi moc bat lai
+dang o lam6 -> quay lai lam1999
+-> force-stop com.rok.gp.vn -> B6 ngu theo cycle_wait_min +/- cycle_wait_variance_min
 ```
 
 Sau khi viec vat chay nguoc ve `lam6`, bot wrap lai account cuoi `lam1999`,
-cho game load on dinh, mo bang Doi Quan, OCR thoi gian thu gom cua cac dao,
-lay timer ngan nhat + buffer de tinh moc bat lai. Sau do bot tat app. B6 se uu
-tien ngu toi moc nay roi tu dong bat lai chu trinh moi. Neu khong doc duoc timer
-acc cuoi thi B6 quay ve co che `cycle_wait_min` nhu cau hinh.
+cho game load on dinh roi tat app. B6 khong doc timer Doi Quan nua; bot chi
+ngu theo `cycle_wait_min +/- cycle_wait_variance_min` trong `devices.yaml` roi
+tu dong bat lai chu trinh moi. Vi du `cycle_wait_min: 60` va
+`cycle_wait_variance_min: 10` thi moi vong se ngu ngau nhien 50-70 phut.
 
 Khi switch account tra ve:
 

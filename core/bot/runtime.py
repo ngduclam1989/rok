@@ -11,7 +11,6 @@ import logging
 import random
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -41,7 +40,7 @@ from .handlers import (
     handle_switch_character,
     reset_slider_state,
 )
-from .readers import read_march_panel_times, read_slot_badge
+from .readers import read_slot_badge
 from .signals import (
     install_signal_handler,
     install_pause_hotkey,
@@ -606,31 +605,6 @@ def _run_chores_workflow(device: Device) -> None:
     log.info("=== Hoan thanh workflow VIEC VAT ===")
 
 
-def _capture_next_cycle_wake_from_last_account(device: Device) -> None:
-    """Read last account march timers and store the next cycle wake timestamp."""
-    config.NEXT_CYCLE_WAKE_AT_TS = None
-    log.info("=== Doc thong tin acc cuoi de tinh thoi gian bat lai ===")
-    try:
-        _return_to_world(device, max_attempts=4)
-        screen = device.snapshot()
-        dyn_wait = read_march_panel_times(device, screen)
-    except Exception:
-        log.exception("Khong doc duoc timer acc cuoi de tinh thoi gian bat lai")
-        return
-
-    if dyn_wait is None:
-        log.warning("Timer acc cuoi khong doc duoc -> B6 se dung cau hinh cho mac dinh neu co")
-        return
-
-    wake_at = datetime.now() + timedelta(seconds=float(dyn_wait))
-    config.NEXT_CYCLE_WAKE_AT_TS = time.time() + float(dyn_wait)
-    log.info(
-        "Da tinh thoi gian bat lai tu acc cuoi: ngu %.1f phut -> bat lai luc %s",
-        float(dyn_wait) / 60.0,
-        wake_at.strftime("%H:%M:%S %d/%m"),
-    )
-
-
 def _handle_logo_18_check(device: Device) -> None:
     # Vùng click ngẫu nhiên khi phát hiện logo 18+
     click_rect_ref = (950, 810, 1440, 1070)
@@ -1068,18 +1042,19 @@ def _handle_queue_full(device: Device, current_character: int, workflow_phase: s
         if account_result == "switched":
             return "account"
         if account_result == "wrapped":
-            log.info("Da quay lai account cuoi sau pha VIEC VAT. Doc timer acc cuoi roi dong app.")
+            log.info(
+                "Da quay lai account cuoi sau pha VIEC VAT. Dong app; B6 se cho theo cycle_wait_min +/- cycle_wait_variance_min."
+            )
             try:
                 pause(5.0)
                 _handle_logo_18_check(device)
                 pause(10.0)
             except Exception:
-                log.exception("Loi khi cho game load account cuoi truoc khi doc timer")
-            _capture_next_cycle_wake_from_last_account(device)
+                log.exception("Loi khi cho game load account cuoi truoc khi dong app")
             try:
                 device.shutdown()
             except Exception:
-                log.exception("Dong app sau khi doc timer acc cuoi that bai")
+                log.exception("Dong app sau pha viec vat that bai")
             return "stop"
         if account_result == "done":
             log.info("Da chay xong viec vat den account dau tien. Dong app va dung bot.")

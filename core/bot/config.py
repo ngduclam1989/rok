@@ -61,6 +61,4 @@ SAVE_DEBUG_IMAGES: bool = False
 ONLY_CLAIM_VIP: bool = False
 ENABLE_VIP_CLAIM: bool = False
 AUTO_CLOSE_BLUESTACK: bool = False
-NEXT_CYCLE_WAKE_AT_TS: float | None = None
-"""Unix timestamp for the next bot cycle, computed from last-account march timers."""
 

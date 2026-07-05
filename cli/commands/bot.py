@@ -192,17 +192,6 @@ def cmd_bot(args: argparse.Namespace) -> int:
             break
 
         # B6: Chờ và chạy lại bot (Đọc cấu hình động từ devices.yaml)
-        wake_at_ts = getattr(bot_engine.config, "NEXT_CYCLE_WAKE_AT_TS", None)
-        if wake_at_ts is not None:
-            wait_sec = max(0, int(float(wake_at_ts) - time.time()))
-            bot_engine.config.NEXT_CYCLE_WAKE_AT_TS = None
-            logging.info(
-                "🔹 B6: Dùng timer acc cuối để chờ bật lại. Ngủ %d giây (~%.1f phút)...",
-                wait_sec, wait_sec / 60.0,
-            )
-            sleep_with_stop_check_exact(wait_sec)
-            continue
-
         cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
         if cycle_wait == 0:
             logging.info("CYCLE_WAIT_MIN = 0 -> Thoát bot sau khi chạy hết vòng.")

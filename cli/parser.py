@@ -18,6 +18,7 @@ from .commands.fleet import cmd_fleet
 from .commands.getres import cmd_getres
 from .commands.run import cmd_run
 from .commands.status import cmd_status
+from .commands.switchacc import cmd_switchacc
 from .logging_setup import setup_logging
 from .paths import DEFAULT_DB
 
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     _build_alliance_parser(sub)
     _build_fleet_parser(sub)
     _build_detect_parser(sub)
+    _build_switchacc_parser(sub)
 
     return parser
 
@@ -239,6 +241,63 @@ def _build_detect_parser(sub: argparse._SubParsersAction) -> None:
         "--serial", help="Serial thiết bị (mặc định: đầu devices.yaml)",
     )
     p.set_defaults(func=cmd_detect)
+
+
+def _build_switchacc_parser(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser(
+        "switchacc",
+        help="Chay rieng vong chuyen account lien tuc de debug",
+    )
+    p.add_argument(
+        "--serial", help="Serial thiet bi (mac dinh: dau devices.yaml)",
+    )
+    p.add_argument(
+        "--control-mode",
+        choices=["adb", "physical_mouse", "scrcpy"],
+        default=None,
+        help="Che do dieu khien (mac dinh lay tu devices.yaml hoac scrcpy)",
+    )
+    p.add_argument(
+        "--loops",
+        type=int,
+        default=0,
+        help="So luot chuyen acc can chay; 0 = chay vo han",
+    )
+    p.add_argument(
+        "--wait-after-switch-sec",
+        type=float,
+        default=60.0,
+        help="So giay cho account moi load sau moi lan login",
+    )
+    p.add_argument(
+        "--fail-sleep-min-sec",
+        type=float,
+        default=20.0,
+        help="Cho toi thieu sau mot lan fail",
+    )
+    p.add_argument(
+        "--fail-sleep-max-sec",
+        type=float,
+        default=35.0,
+        help="Cho toi da sau mot lan fail",
+    )
+    p.add_argument(
+        "--kill-after-fails",
+        type=int,
+        default=5,
+        help="Qua N lan fail lien tiep thi force-stop app va mo lai",
+    )
+    p.add_argument(
+        "--no-fail-screens",
+        action="store_true",
+        help="Khong luu anh core/tmp/switch_loop khi fail",
+    )
+    p.add_argument(
+        "--no-open-game",
+        action="store_true",
+        help="Khong goi mo game luc bat dau, chi dung trang thai hien tai",
+    )
+    p.set_defaults(func=cmd_switchacc)
 
 
 def run(argv: list[str] | None = None) -> int:

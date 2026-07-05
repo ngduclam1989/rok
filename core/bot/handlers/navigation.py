@@ -36,6 +36,21 @@ _USED_ACCOUNTS: set[str] = set()
 _FIRST_USED_ACCOUNT: str | None = None
 
 
+def reset_account_run_tracking(start_account: str | None = None) -> None:
+    """Reset account traversal memory, optionally starting from one account."""
+    global _FIRST_USED_ACCOUNT
+    _USED_ACCOUNTS.clear()
+    _FIRST_USED_ACCOUNT = None
+    if start_account:
+        _FIRST_USED_ACCOUNT = start_account
+        _USED_ACCOUNTS.add(start_account)
+    log.info(
+        "Reset account run tracking: first=%s used=%s",
+        _FIRST_USED_ACCOUNT,
+        sorted(_USED_ACCOUNTS),
+    )
+
+
 def _scale_ref_region(
     screen: np.ndarray,
     region_ref: tuple[int, int, int, int],
@@ -92,23 +107,21 @@ def handle_world(
     log.info("Bản đồ thế giới -> quét kính lúp")
     region_pct = (0, 70, 10, 85)
     
-    # Chỉ tìm kiếm ảnh xem có tồn tại hay không, không chạm tự động
-    found = try_template(
-        device, screen, "btn_kinh_luc.png", 0.55,
-        region_pct=region_pct,
-    )
-    if not found:
+    region_px = region_pct_to_px(screen, region_pct)
+    try:
+        pos = device.find_template_in(
+            "btn_kinh_luc.png", screen, 0.50, region=region_px,
+        )
+    except FileNotFoundError:
+        pos = None
+    if pos is None:
         log.warning("Không tìm thấy kính lúp trong vùng %s -> không làm gì cả", region_pct)
         return StepResult(False, "thiếu kính lúp", sleep_after=1.5)
-        
-    # Nếu tìm thấy kính lúp, chạm vào trung tâm của vùng quét
-    r_x1, r_y1, r_x2, r_y2 = region_pct
-    center_x_pct = (r_x1 + r_x2) / 2.0
-    center_y_pct = (r_y1 + r_y2) / 2.0
-    x, y = pct_to_px(screen, center_x_pct, center_y_pct)
+
+    x, y = pos
     log.info(
-        "Tìm thấy kính lúp -> Chạm vào trung tâm vùng tìm kiếm: (%.1f%%, %.1f%%) tại tọa độ pixel @(%d,%d)",
-        center_x_pct, center_y_pct, x, y
+        "Tìm thấy kính lúp trong vùng %s -> chạm đúng template tại @(%d,%d)",
+        region_pct, x, y,
     )
     device.tap(x, y)
     return StepResult(True, f"đã mở bảng tìm kiếm (chạm @({x},{y}))", sleep_after=1.5)
@@ -301,6 +314,28 @@ def _tap_center_jitter(
     return tap_x, tap_y
 
 
+def _tap_ocr_hit_center(
+    device: Device,
+    hit,
+    label: str,
+    jitter: int = 8,
+) -> tuple[int, int]:
+    """Tap near an OCR hit center; safer than a wide static region for menu rows."""
+    return _tap_center_jitter(device, int(hit.cx), int(hit.cy), label, jitter=jitter)
+
+
+def _tap_settings_tile_from_label(
+    device: Device,
+    screen: np.ndarray,
+    hit,
+    label: str,
+) -> tuple[int, int]:
+    h, _ = screen.shape[:2]
+    icon_offset = max(90, int(h * 0.13))
+    target_y = max(0, int(hit.cy) - icon_offset)
+    return _tap_center_jitter(device, int(hit.cx), target_y, label, jitter=8)
+
+
 def _tap_template_with_center_jitter(
     device: Device,
     screen: np.ndarray,
@@ -424,6 +459,46 @@ def _confirm_selected_account_and_login(
     return True
 
 
+def _tap_switch_account_by_ocr(device: Device, screen: np.ndarray) -> bool:
+    hits = ocr.find_all(screen)
+    for hit in hits:
+        if hit.confidence < 0.55:
+            continue
+        text = ocr.strip_diacritics(hit.text).lower().replace(" ", "")
+        if (
+            "chuyentaikhoan" in text
+            or "chuyentaikhon" in text
+            or "chuyntaikhon" in text
+            or "chuyntaikhoan" in text
+        ):
+            log.info(
+                "Tìm thấy chữ Chuyển tài khoản '%s' tại (%d,%d). Chạm theo tâm OCR.",
+                hit.text,
+                hit.cx,
+                hit.cy,
+            )
+            _tap_ocr_hit_center(device, hit, "chữ Chuyển tài khoản", jitter=8)
+            return True
+    return False
+
+
+def _looks_like_settings_screen(screen: np.ndarray) -> bool:
+    region_px = _scale_ref_region(screen, _ACCOUNT_TEXT_REGION_REF)
+    for hit in ocr.find_all(screen, region=region_px):
+        if hit.confidence < 0.55:
+            continue
+        text = ocr.strip_diacritics(hit.text).lower()
+        if any(needle in text for needle in _ACCOUNT_TEXT_NEEDLES):
+            log.info(
+                "Xác nhận đang ở màn Cài đặt qua OCR mục Tài khoản: '%s' tại (%d,%d)",
+                hit.text,
+                hit.cx,
+                hit.cy,
+            )
+            return True
+    return False
+
+
 def _log_current_account_mapping(screen: np.ndarray) -> str | None:
     region_px = _scale_ref_region(screen, _ACCOUNT_EMAIL_REGION_REF)
     hits = [hit for hit in ocr.find_all(screen, region=region_px) if hit.confidence >= 0.45]
@@ -452,11 +527,110 @@ def _log_current_account_mapping(screen: np.ndarray) -> str | None:
     return None
 
 
-def handle_switch_account(device: Device) -> str:
+def _switch_from_account_center(
+    device: Device,
+    screen: np.ndarray,
+    matched_account: str,
+    *,
+    wrap_to_first: bool,
+) -> str:
+    accounts = _load_known_accounts()
+    run_order = _account_run_order(accounts)
+    remaining_accounts = _remaining_accounts(accounts)
+    if remaining_accounts:
+        target_accounts = remaining_accounts
+        result_after_login = "switched"
+    else:
+        if not wrap_to_first:
+            log.info(
+                "Account hien tai la account cuoi trong thu tu chay. "
+                "Khong wrap ve account dau; giu nguyen account hien tai: %s",
+                matched_account,
+            )
+            reset_account_run_tracking(matched_account)
+            return "done"
+        target_accounts = run_order[:1]
+        result_after_login = "wrapped"
+        log.info(
+            "Account hiện tại là account cuối. Sẽ quay về account đầu tiên trong thứ tự chạy: %s",
+            target_accounts[0] if target_accounts else None,
+        )
+    if not _tap_switch_account_by_ocr(device, screen):
+        _tap_random_ref_region(
+            device,
+            screen,
+            _SWITCH_ACCOUNT_BUTTON_REGION_REF,
+            "nút Chuyển tài khoản",
+        )
+    wait_after_switch_tap = random.uniform(5.0, 10.0)
+    log.info("Đã chạm Chuyển tài khoản, chờ %.2fs để chuyển màn...", wait_after_switch_tap)
+    time.sleep(wait_after_switch_tap)
+    try:
+        switch_screen = device.snapshot()
+    except Exception:
+        log.exception("Không chụp được màn hình sau khi chạm Chuyển tài khoản")
+        return "failed"
+    if not _tap_template_with_center_jitter(
+        device,
+        switch_screen,
+        "btn_change_acc.png",
+        _CHANGE_ACC_BUTTON_REGION_REF,
+        threshold=0.7,
+    ):
+        return "failed"
+    wait_after_dropdown_tap = random.uniform(2.0, 4.0)
+    log.info("Đã chạm mở danh sách account, chờ %.2fs để đọc dropdown...", wait_after_dropdown_tap)
+    time.sleep(wait_after_dropdown_tap)
+    try:
+        dropdown_screen = device.snapshot()
+    except Exception:
+        log.exception("Không chụp được màn hình dropdown tài khoản")
+        return "failed"
+    selected_account = _select_account_from_dropdown(
+        device,
+        dropdown_screen,
+        target_accounts,
+        "account mục tiêu",
+    )
+    if selected_account is None:
+        return "failed"
+    log.info("Đã chọn account còn lại: %s", selected_account)
+    wait_after_account_select = random.uniform(3.0, 6.0)
+    log.info("Chờ %.2fs để màn login cập nhật account đã chọn...", wait_after_account_select)
+    time.sleep(wait_after_account_select)
+    try:
+        login_screen = device.snapshot()
+    except Exception:
+        log.exception("Không chụp được màn hình xác nhận login sau khi chọn account")
+        return "failed"
+    if not _confirm_selected_account_and_login(device, login_screen, selected_account):
+        return "failed"
+    return result_after_login
+
+
+def handle_switch_account(device: Device, *, wrap_to_first: bool = True) -> str:
     """Mở luồng chuyển tài khoản đến bước Avatar -> Cài đặt -> Tài khoản."""
     screen_settings = _open_settings_screen(device, "chuyển tài khoản")
     if screen_settings is None:
-        return "failed"
+        try:
+            current_screen = device.snapshot()
+        except Exception:
+            log.exception("Không chụp được màn hình để kiểm tra recovery Cài đặt")
+            return "failed"
+        if _looks_like_settings_screen(current_screen):
+            log.info("Luồng chuyển tài khoản: đang ở sẵn màn Cài đặt, tiếp tục thay vì fail.")
+            screen_settings = current_screen
+        else:
+            matched_account = _log_current_account_mapping(current_screen)
+            if matched_account is not None:
+                log.info("Luồng chuyển tài khoản: đang ở sẵn Trung Tâm Người Dùng, tiếp tục từ email hiện tại.")
+                return _switch_from_account_center(
+                    device,
+                    current_screen,
+                    matched_account,
+                    wrap_to_first=wrap_to_first,
+                )
+            return "failed"
 
     region_px = _scale_ref_region(screen_settings, _ACCOUNT_TEXT_REGION_REF)
     log.info(
@@ -470,20 +644,13 @@ def handle_switch_account(device: Device) -> str:
             continue
         text = ocr.strip_diacritics(hit.text).lower()
         if any(needle in text for needle in _ACCOUNT_TEXT_NEEDLES):
-            tap_region = _scale_ref_region(screen_settings, _ACCOUNT_TAP_REGION_REF)
-            x1, y1, x2, y2 = tap_region
-            tap_x = random.randint(x1, max(x1, x2 - 1))
-            tap_y = random.randint(y1, max(y1, y2 - 1))
             log.info(
-                "Tìm thấy chữ Tài khoản '%s' tại (%d,%d). Chạm random trong vùng %r -> (%d,%d).",
+                "Tìm thấy chữ Tài khoản '%s' tại (%d,%d). Chạm theo tâm OCR.",
                 hit.text,
                 hit.cx,
                 hit.cy,
-                _ACCOUNT_TAP_REGION_REF,
-                tap_x,
-                tap_y,
             )
-            device.tap(tap_x, tap_y)
+            _tap_settings_tile_from_label(device, screen_settings, hit, "ô Tài khoản")
             wait_sec = random.uniform(5.0, 10.0)
             log.info("Đã chạm Tài khoản, chờ %.2fs để chuyển màn...", wait_sec)
             time.sleep(wait_sec)
@@ -509,12 +676,7 @@ def handle_switch_account(device: Device) -> str:
                             continue
                         retry_text = ocr.strip_diacritics(retry_hit.text).lower()
                         if any(needle in retry_text for needle in _ACCOUNT_TEXT_NEEDLES):
-                            _tap_random_ref_region(
-                                device,
-                                next_screen,
-                                _ACCOUNT_TAP_REGION_REF,
-                                "mục Tài khoản retry",
-                            )
+                            _tap_settings_tile_from_label(device, next_screen, retry_hit, "ô Tài khoản retry")
                             tapped_retry = True
                             break
                     if not tapped_retry:
@@ -534,69 +696,12 @@ def handle_switch_account(device: Device) -> str:
                         break
                 if matched_account is None:
                     return "failed"
-            accounts = _load_known_accounts()
-            run_order = _account_run_order(accounts)
-            remaining_accounts = _remaining_accounts(accounts)
-            if remaining_accounts:
-                target_accounts = remaining_accounts
-                result_after_login = "switched"
-            else:
-                target_accounts = run_order[:1]
-                result_after_login = "wrapped"
-                log.info(
-                    "Account hiện tại là account cuối. Sẽ quay về account đầu tiên trong thứ tự chạy: %s",
-                    target_accounts[0] if target_accounts else None,
-                )
-            _tap_random_ref_region(
+            return _switch_from_account_center(
                 device,
                 next_screen,
-                _SWITCH_ACCOUNT_BUTTON_REGION_REF,
-                "nút Chuyển tài khoản",
+                matched_account,
+                wrap_to_first=wrap_to_first,
             )
-            wait_after_switch_tap = random.uniform(5.0, 10.0)
-            log.info("Đã chạm Chuyển tài khoản, chờ %.2fs để chuyển màn...", wait_after_switch_tap)
-            time.sleep(wait_after_switch_tap)
-            try:
-                switch_screen = device.snapshot()
-            except Exception:
-                log.exception("Không chụp được màn hình sau khi chạm Chuyển tài khoản")
-                return "failed"
-            if not _tap_template_with_center_jitter(
-                device,
-                switch_screen,
-                "btn_change_acc.png",
-                _CHANGE_ACC_BUTTON_REGION_REF,
-                threshold=0.7,
-            ):
-                return "failed"
-            wait_after_dropdown_tap = random.uniform(2.0, 4.0)
-            log.info("Đã chạm mở danh sách account, chờ %.2fs để đọc dropdown...", wait_after_dropdown_tap)
-            time.sleep(wait_after_dropdown_tap)
-            try:
-                dropdown_screen = device.snapshot()
-            except Exception:
-                log.exception("Không chụp được màn hình dropdown tài khoản")
-                return "failed"
-            selected_account = _select_account_from_dropdown(
-                device,
-                dropdown_screen,
-                target_accounts,
-                "account mục tiêu",
-            )
-            if selected_account is None:
-                return "failed"
-            log.info("Đã chọn account còn lại: %s", selected_account)
-            wait_after_account_select = random.uniform(3.0, 6.0)
-            log.info("Chờ %.2fs để màn login cập nhật account đã chọn...", wait_after_account_select)
-            time.sleep(wait_after_account_select)
-            try:
-                login_screen = device.snapshot()
-            except Exception:
-                log.exception("Không chụp được màn hình xác nhận login sau khi chọn account")
-                return "failed"
-            if not _confirm_selected_account_and_login(device, login_screen, selected_account):
-                return "failed"
-            return result_after_login
 
     log.warning("Không tìm thấy chữ Tài khoản trong vùng coords=%r", _ACCOUNT_TEXT_REGION_REF)
     try:

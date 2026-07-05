@@ -17,6 +17,7 @@ from core.device import Device
 
 from .capture import save_debug_image
 from .geometry import ocr_text_in, region_pct_to_px, try_template
+from .readers import read_slot_badge
 from .state import S
 
 log = logging.getLogger(__name__)
@@ -263,7 +264,7 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
         return S.CITY
 
     # 5. WORLD: kinh_luc (magnifying glass). Popup safety net afterward.
-    if try_template(device, screen, "btn_kinh_luc.png", 0.55,
+    if try_template(device, screen, "btn_kinh_luc.png", 0.50,
                     region_pct=(0, 70, 10, 85)):
         if _has_tile_info_popup(screen):
             log.info("Phat hien kinh lup + popup -> TILE_INFO")
@@ -351,5 +352,14 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
                    ("phong", "Thi k", "Thoi k", "ky phong"),
                    threshold=0.5):
         return S.CITY
+
+    # World fallback: on WORLD the march queue badge n/N is visible at
+    # top-right even when the kinh_luc template misses because of camera/UI
+    # animation. Put this late, after modal/panel checks, to avoid masking
+    # actionable overlays.
+    n, mx = read_slot_badge(screen)
+    if n is not None and mx is not None:
+        log.info("WORLD fallback bang huy hieu hang doi: %d/%d", n, mx)
+        return S.WORLD
 
     return S.UNKNOWN

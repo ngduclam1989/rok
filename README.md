@@ -62,6 +62,18 @@ Chay rieng hanh trinh VIP/Boost:
 .venv\Scripts\python.exe main.py bot --serial YOUR_SERIAL --only-claim-vip
 ```
 
+Chay rieng vong chuyen account de debug loi switch acc:
+
+```bat
+.venv\Scripts\python.exe main.py switchacc --serial YOUR_SERIAL --control-mode scrcpy --loops 0
+```
+
+`--loops 0` la chay vo han. Neu chi muon test nhanh 4 luot:
+
+```bat
+.venv\Scripts\python.exe main.py switchacc --serial YOUR_SERIAL --control-mode scrcpy --loops 4
+```
+
 ## Cau hinh devices.yaml
 
 Vi du cau hinh dang dung:
@@ -78,9 +90,9 @@ defaults:
   enable_vip_claim: true
   cycle_wait_min: 0
   cycle_wait_variance_min: 10
-  alliance_gifts_probability: 0.3
-  alliance_territory_probability: 0.3
-  alliance_tech_probability: 0.3
+  alliance_gifts_probability: 1.0
+  alliance_territory_probability: 1.0
+  alliance_tech_probability: 1.0
 
 devices:
   - name: phone-redmi
@@ -107,32 +119,34 @@ farm_scenario: random   # random / 1 / 2 / 3 / 4 / 5
 
 ## Luong action chinh
 
-Moi nhan vat tao danh sach workflow:
+Bot chia thanh 2 pha lon:
 
 ```text
-getres, alliance, farm, vip
+farm -> chores
 ```
 
-Neu `enable_vip_claim: false` thi khong them `vip`. Danh sach tren duoc xao
-tron moi lan vao nhan vat/account, nhung bot chi chuyen nhan vat/account khi
-danh sach workflow da rong.
+Pha `farm` chay truoc tu account dau den account cuoi. Khi farm xong account
+cuoi, bot khong quay ve account dau ngay; no giu account cuoi va bat dau pha
+`chores`. Pha `chores` chay nguoc tu account cuoi ve account dau, xong account
+dau thi force-stop game va dung bot.
 
-### getres
+`farm` la workflow rieng. Tat ca hanh dong con lai nam trong `chores` va duoc
+xao tron ben trong workflow nay.
 
-1. Dua game ve WORLD/CITY on dinh.
-2. Vao city neu can.
-3. Thu tai nguyen noi thanh, toi da 4 diem.
-4. Dua ve WORLD.
+### chores
 
-### alliance
+`chores` gom cac viec vat sau:
 
-1. Dua game ve WORLD.
-2. Chay alliance help 100%.
-3. Chay cac viec phu theo ty le cau hinh:
-   - `alliance_gifts_probability`
-   - `alliance_territory_probability`
-   - `alliance_tech_probability`
-4. Dua ve WORLD.
+- Lay tai nguyen noi thanh: 100%, toi da 4 diem.
+- Tro giup lien minh: 100%.
+- Nhan qua lien minh: 100%.
+- Thu tai nguyen lanh tho: 100%.
+- Dong gop cong nghe lien minh: 100%.
+- VIP/Boost: chi them vao chores neu `enable_vip_claim: true`.
+
+Thu tu cac viec trong `chores` duoc random, nhung tat ca deu bat buoc chay.
+Truoc va sau moi viec, bot co gang dua man hinh ve WORLD/CITY de viec tiep theo
+khong bi lech state.
 
 ### farm
 
@@ -157,9 +171,9 @@ Kich ban `cycle`:
   tu random.
 - `random`: chon ngau nhien 1 trong 5 kich ban tren khi bat dau plan.
 
-### vip / boost
+#### VIP / Boost
 
-Workflow `vip` hien la hanh trinh gop `VIP/Boost`:
+Trong `chores`, muc `VIP/Boost` chay nhu sau:
 
 1. Dua ve WORLD.
 2. Scan buff gathering boost active bang template:
@@ -225,20 +239,40 @@ Quy tac chay:
 Voi thu tu hien tai cua anh, chu trinh day du la:
 
 ```text
+FARM:
 lam6 char 1  -> lam6 char 2
 lam29 char 1 -> lam29 char 2
 lam999 char 1 -> lam999 char 2
 lam1999 char 1 -> lam1999 char 2
-quay ve lam6 -> cho load on dinh -> force-stop com.rok.gp.vn -> dung bot
+
+VIEC VAT:
+lam1999 -> lam999 -> lam29 -> lam6
+
+XONG:
+dang o lam6 -> quay lai lam1999 -> doc timer Doi Quan acc cuoi
+-> force-stop com.rok.gp.vn -> B6 ngu toi moc bat lai
 ```
+
+Sau khi viec vat chay nguoc ve `lam6`, bot wrap lai account cuoi `lam1999`,
+cho game load on dinh, mo bang Doi Quan, OCR thoi gian thu gom cua cac dao,
+lay timer ngan nhat + buffer de tinh moc bat lai. Sau do bot tat app. B6 se uu
+tien ngu toi moc nay roi tu dong bat lai chu trinh moi. Neu khong doc duoc timer
+acc cuoi thi B6 quay ve co che `cycle_wait_min` nhu cau hinh.
 
 Khi switch account tra ve:
 
 - `switched`: account tiep theo thanh cong, quay lai `char 1`.
-- `wrapped`: da quay lai account dau tien trong thu tu chay. Voi danh sach cua
-  anh la quay ve `ngduclam6@gmail.com`, bot cho load on dinh roi
+- Farm phase: khi het account ke tiep, bot chuyen sang pha `chores` ngay tren
+  account cuoi hien tai.
+- Chores phase: khi het account ke tiep, bot dang o account dau va goi
   `device.shutdown()`.
-- `done`: khong con account tiep theo, bot `device.shutdown()`.
+
+Neu switch account loi:
+
+- Moi lan switch account se thu toi da 3 lan trong cung man hinh.
+- Neu ca 3 lan fail, bot dua ve WORLD, cho 20-35s va retry mem lan sau.
+- Neu retry mem qua 5 lan lien tiep van fail, bot kill app, mo lai game, dua ve
+  WORLD roi chay lai logic chuyen acc theo dung danh sach/pha hien tai.
 
 `device.shutdown()` se chay:
 

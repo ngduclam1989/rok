@@ -511,19 +511,15 @@ def _claim_vip_only(device: Device) -> None:
         log.exception("Lỗi khi thực hiện nhận VIP: %s", e)
 
 
-def _build_randomized_workflows() -> list[str]:
-    """Tạo danh sách các hành động khởi đầu với tỷ lệ ngẫu nhiên:
-      * getres: 100%
-      * alliance: 100%
-      * farm: 100%
-      * vip: 100% (nếu được bật trong cấu hình)
-    Sau đó xáo trộn thứ tự các hành động này.
+def _build_randomized_workflows(phase: str = "farm") -> list[str]:
+    """Create the top-level workflow list.
+
+    Phase ``farm`` runs only farm through the account list. Phase ``chores``
+    runs all non-farm actions while walking accounts back.
     """
-    workflows = ["getres", "alliance", "farm"]
-    if getattr(config, "ENABLE_VIP_CLAIM", True):
-        workflows.append("vip")
-    random.shuffle(workflows)
-    return workflows
+    if phase == "chores":
+        return ["chores"]
+    return ["farm"]
 
 
 def _finish_current_workflow(
@@ -551,61 +547,88 @@ def _finish_current_workflow(
     )
 
 
-_chores_first: bool = True
-
-
-def _run_vip_and_chores_now(device: Device) -> None:
-    # Game đã tải xong và ở WORLD, mở khoá nút BACK để sử dụng trong chores
+def _run_chores_workflow(device: Device) -> None:
+    """Run all non-farm actions as one grouped chores workflow."""
     device._back_locked_until = 0.0
-    
-    # Định nghĩa các hành động khởi tạo
     from .chores import (
-        do_alliance_help,
+        collect_city_resources,
         do_alliance_gifts,
-        do_alliance_territory,
+        do_alliance_help,
         do_alliance_tech,
+        do_alliance_territory,
     )
-    
-    # Bọc các hàm hành động để dễ gọi và xử lý ngoại lệ riêng biệt
-    def run_vip():
+
+    def run_vip() -> None:
         _claim_vip(device)
-        
-    def run_help():
+
+    def run_getres() -> None:
+        _prepare_world_only(device)
+        collect_city_resources(device, max_resources=4)
+
+    def run_help() -> None:
         do_alliance_help(device)
-        
-    def run_gifts():
+
+    def run_gifts() -> None:
         do_alliance_gifts(device)
-        
-    def run_territory():
+
+    def run_territory() -> None:
         do_alliance_territory(device)
-        
-    def run_tech():
+
+    def run_tech() -> None:
         do_alliance_tech(device)
-        
-    # Danh sách các hành động cần thực hiện
+
     actions = [
-        ("Nhận VIP", run_vip),
-        ("Trợ giúp liên minh", run_help),
-        ("Nhận quà liên minh", run_gifts),
-        ("Thu tài nguyên lãnh thổ", run_territory),
-        ("Đóng góp công nghệ liên minh", run_tech),
+        ("lay tai nguyen noi thanh", run_getres),
+        ("tro giup lien minh", run_help),
+        ("nhan qua lien minh", run_gifts),
+        ("thu tai nguyen lanh tho", run_territory),
+        ("dong gop cong nghe lien minh", run_tech),
     ]
-    
-    # Xáo trộn ngẫu nhiên thứ tự thực hiện hành động để giống người thật
+    if getattr(config, "ENABLE_VIP_CLAIM", False):
+        actions.append(("vip/boost", run_vip))
+
     random.shuffle(actions)
-    
-    log.info("=== Bắt đầu thực hiện các hành động khởi tạo (đã xáo trộn ngẫu nhiên) ===")
+
+    log.info("=== Bat dau workflow VIEC VAT bat buoc: %s ===", [name for name, _action in actions])
     for name, action in actions:
-        log.info("-> Bắt đầu hành động: %s", name)
+        log.info("[viec vat] bat dau bat buoc: %s", name)
         try:
+            _prepare_world_only(device)
             action()
-        except Exception as e:
-            log.exception("Lỗi khi thực hiện hành động '%s': %s", name, e)
-        # Nghỉ ngơi ngắn ngẫu nhiên giữa các hành động lớn
+        except Exception:
+            log.exception("[viec vat] loi khi chay %s", name)
+        try:
+            _prepare_world_only(device)
+        except Exception:
+            log.exception("[viec vat] khong dua ve WORLD/CITY sau %s", name)
         pause(1.5, 3.0)
-        
-    log.info("=== Hoàn thành các hành động khởi tạo ===")
-    _initial_navigate_to_world(device)
+
+    log.info("=== Hoan thanh workflow VIEC VAT ===")
+
+
+def _capture_next_cycle_wake_from_last_account(device: Device) -> None:
+    """Read last account march timers and store the next cycle wake timestamp."""
+    config.NEXT_CYCLE_WAKE_AT_TS = None
+    log.info("=== Doc thong tin acc cuoi de tinh thoi gian bat lai ===")
+    try:
+        _return_to_world(device, max_attempts=4)
+        screen = device.snapshot()
+        dyn_wait = read_march_panel_times(device, screen)
+    except Exception:
+        log.exception("Khong doc duoc timer acc cuoi de tinh thoi gian bat lai")
+        return
+
+    if dyn_wait is None:
+        log.warning("Timer acc cuoi khong doc duoc -> B6 se dung cau hinh cho mac dinh neu co")
+        return
+
+    wake_at = datetime.now() + timedelta(seconds=float(dyn_wait))
+    config.NEXT_CYCLE_WAKE_AT_TS = time.time() + float(dyn_wait)
+    log.info(
+        "Da tinh thoi gian bat lai tu acc cuoi: ngu %.1f phut -> bat lai luc %s",
+        float(dyn_wait) / 60.0,
+        wake_at.strftime("%H:%M:%S %d/%m"),
+    )
 
 
 def _handle_logo_18_check(device: Device) -> None:
@@ -649,6 +672,33 @@ def _handle_logo_18_check(device: Device) -> None:
             continue
 
         if state in (S.WORLD, S.CITY):
+            h, w = screen.shape[:2]
+            start_logo_region = (
+                int(w * 0.88),
+                int(h * 0.80),
+                int(w * 0.99),
+                int(h * 0.99),
+            )
+            try:
+                start_logo_pos = device.find_template_in(
+                    "logo_18.png", screen, threshold=0.70, region=start_logo_region,
+                )
+            except Exception:
+                start_logo_pos = None
+            if start_logo_pos is not None:
+                stable_world_count = 0
+                tx = int(w * 0.50) + random.randint(-30, 30)
+                ty = int(h * 0.78) + random.randint(-20, 20)
+                log.info(
+                    "Phát hiện màn Nhấn để bắt đầu dù state=%s (logo18=%s) -> tap (%d,%d) rồi chờ load",
+                    state.value,
+                    start_logo_pos,
+                    tx,
+                    ty,
+                )
+                device.tap(tx, ty)
+                pause(8.0)
+                continue
             stable_world_count += 1
             log.info(
                 "Phát hiện trạng thái %s (lần %d/2 liên tiếp) -> "
@@ -985,18 +1035,67 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
     )
 
 
-def _handle_queue_full(device: Device, current_character: int) -> str:
+def _handle_queue_full(device: Device, current_character: int, workflow_phase: str) -> str:
     """Xử lý khi nhân vật hoàn thành mọi chu trình.
 
     Returns:
         "character" nếu đã chuyển sang char 2,
         "account" nếu đã chuyển sang account kế tiếp,
+        "chores_phase" nếu farm đã xong acc cuối và bắt đầu pha việc vặt,
         "retry" nếu chuyển account lỗi tạm thời và cần thử lại,
         "stop" nếu hết việc hoặc thao tác thất bại.
     """
     log.info("=== Đã hoàn thành mọi chu trình của nhân vật hiện tại! ===")
     _return_to_world(device, max_attempts=4)
     _cleanup_captures()
+
+    if workflow_phase == "chores":
+        log.info("=== Pha VIEC VAT: thu chuyen sang account truoc do... ===")
+        account_result = "failed"
+        for attempt in range(1, 4):
+            log.info("Thu chuyen account pha viec vat lan %d/3...", attempt)
+            account_result = handle_switch_account(device, wrap_to_first=True)
+            if account_result in ("switched", "wrapped", "done"):
+                break
+            log.warning(
+                "Chuyen account pha viec vat lan %d/3 that bai. Dua ve WORLD roi thu lai neu con luot...",
+                attempt,
+            )
+            _return_to_world(device, max_attempts=4)
+            if attempt < 3:
+                pause(random.uniform(8.0, 15.0))
+
+        if account_result == "switched":
+            return "account"
+        if account_result == "wrapped":
+            log.info("Da quay lai account cuoi sau pha VIEC VAT. Doc timer acc cuoi roi dong app.")
+            try:
+                pause(5.0)
+                _handle_logo_18_check(device)
+                pause(10.0)
+            except Exception:
+                log.exception("Loi khi cho game load account cuoi truoc khi doc timer")
+            _capture_next_cycle_wake_from_last_account(device)
+            try:
+                device.shutdown()
+            except Exception:
+                log.exception("Dong app sau khi doc timer acc cuoi that bai")
+            return "stop"
+        if account_result == "done":
+            log.info("Da chay xong viec vat den account dau tien. Dong app va dung bot.")
+            try:
+                device.shutdown()
+            except Exception:
+                log.exception("Dong app sau pha viec vat that bai")
+            return "stop"
+
+        wait_retry = random.uniform(20.0, 35.0)
+        log.warning(
+            "Chuyen account pha viec vat van that bai sau 3 lan. Cho %.2fs roi retry mem; qua 5 retry lien tiep se kill app.",
+            wait_retry,
+        )
+        pause(wait_retry)
+        return "retry"
 
     if current_character == 1:
         log.info("=== Tiến hành chuyển sang nhân vật thứ 2... ===")
@@ -1019,8 +1118,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
     account_result = "failed"
     for attempt in range(1, 4):
         log.info("Thử chuyển account lần %d/3...", attempt)
-        account_result = handle_switch_account(device)
-        if account_result in ("switched", "wrapped", "done"):
+        account_result = handle_switch_account(device, wrap_to_first=False)
+        if account_result in ("switched", "done"):
             break
         log.warning(
             "Chuyển account lần %d/3 thất bại. Đưa về WORLD rồi thử lại nếu còn lượt...",
@@ -1030,30 +1129,13 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         if attempt < 3:
             pause(random.uniform(8.0, 15.0))
 
-    if account_result == "wrapped":
-        log.info("Đã quay lại account đầu tiên. Tiến hành đóng app.")
-        try:
-            pause(5.0)
-            _handle_logo_18_check(device)
-            pause(10.0)
-        except Exception:
-            log.exception("Lỗi khi chờ game load account đầu tiên trước khi đóng app")
-        try:
-            device.shutdown()
-        except Exception:
-            log.exception("Đóng app sau khi quay về account đầu thất bại")
-        return "stop"
     if account_result == "done":
-        log.info("Không còn account kế tiếp. Đóng app và dừng bot.")
-        try:
-            device.shutdown()
-        except Exception:
-            log.exception("Đóng app sau account cuối thất bại")
-        return "stop"
+        log.info("Farm da xong account cuoi. Bat dau pha VIEC VAT tu account hien tai ve account dau.")
+        return "chores_phase"
     if account_result != "switched":
         wait_retry = random.uniform(20.0, 35.0)
         log.warning(
-            "Chuyển account vẫn thất bại sau 3 lần. Không dừng bot; chờ %.2fs rồi thử lại vòng sau.",
+            "Chuyển account vẫn thất bại sau 3 lần. Chờ %.2fs rồi retry mềm; quá 5 retry liên tiếp sẽ kill app.",
             wait_retry,
         )
         pause(wait_retry)
@@ -1325,9 +1407,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     log.info("B1: Đã vào WORLD/CITY, chờ %.2fs trước khi thực hiện chu trình bot...", wait_b1)
     pause(wait_b1)
 
-    # Khởi tạo danh sách chu trình ngẫu nhiên cho nhân vật đầu tiên
-    remaining_workflows = _build_randomized_workflows()
-    log.info("=== Thứ tự chu trình ngẫu nhiên của nhân vật này: %s ===", remaining_workflows)
+    workflow_phase = "farm"
+    remaining_workflows = _build_randomized_workflows(workflow_phase)
+    log.info("=== Pha hien tai=%s, workflow nhan vat nay: %s ===", workflow_phase, remaining_workflows)
 
     last_state: S | None = None
     stuck_count = 0
@@ -1337,6 +1419,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     reset_slider_state()
     current_character = 1
     is_first_world_snapshot = True
+    switch_account_fail_streak = 0
 
     # Read the n/N badge once on startup so we know the current queue
     # state (user may already have marches out) and the account's
@@ -1376,11 +1459,50 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 "Danh sach workflow da rong -> moi duoc chuyen nhan vat/account. Kiem tra lan cuoi: %s",
                 remaining_workflows,
             )
-            transition = _handle_queue_full(device, current_character)
+            transition = _handle_queue_full(device, current_character, workflow_phase)
             if transition == "stop":
                 break
             if transition == "retry":
-                log.info("Giữ nguyên nhân vật/account hiện tại để thử chuyển account lại...")
+                switch_account_fail_streak += 1
+                log.warning(
+                    "Chuyen account retry lien tiep %d/5. Giu nguyen nhan vat/account de thu lai...",
+                    switch_account_fail_streak,
+                )
+                if switch_account_fail_streak > 5:
+                    log.warning(
+                        "Chuyen account fail qua 5 lan -> kill app, mo lai game, roi chay lai chuyen acc theo danh sach.",
+                    )
+                    try:
+                        device.shutdown()
+                    except Exception:
+                        log.exception("Kill app sau switch-account fail qua 5 lan that bai")
+                    pause(3.0)
+                    try:
+                        device.start_game()
+                        device._back_locked_until = 0.0
+                        pause(10.0)
+                        _handle_logo_18_check(device)
+                        _prepare_world_only(device)
+                    except Exception:
+                        log.exception("Mo lai game sau switch-account fail qua 5 lan that bai")
+                    switch_account_fail_streak = 0
+                continue
+            switch_account_fail_streak = 0
+            if transition == "chores_phase":
+                workflow_phase = "chores"
+                remaining_workflows = _build_randomized_workflows(workflow_phase)
+                log.info(
+                    "=== Chuyen sang pha VIEC VAT tu account cuoi ve account dau: %s ===",
+                    remaining_workflows,
+                )
+                _prepare_world_only(device)
+                current_character = 2
+                last_state = None
+                stuck_count = 0
+                dispatched_count = 0
+                is_first_world_snapshot = True
+                reset_slider_state()
+                device._back_locked_until = 0.0
                 continue
 
             if transition == "character":
@@ -1388,7 +1510,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 log.info("Bắt đầu lại quy trình với nhân vật thứ 2...")
             else:
                 current_character = 1
-                log.info("Bắt đầu lại quy trình với account mới, nhân vật thứ 1...")
+                if workflow_phase == "chores":
+                    log.info("Bắt đầu lại pha VIEC VAT với account kế tiếp trên đường về account đầu...")
+                else:
+                    log.info("Bắt đầu lại quy trình FARM với account mới, nhân vật thứ 1...")
 
             _prepare_world_only(device)
 
@@ -1401,9 +1526,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             pause(wait_b1)
 
             # Khởi tạo lại chu trình cho nhân vật/account mới
-            remaining_workflows = _build_randomized_workflows()
+            remaining_workflows = _build_randomized_workflows(workflow_phase)
             log.info(
-                "=== Thứ tự chu trình ngẫu nhiên của account hiện tại / nhân vật %d: %s ===",
+                "=== Pha=%s, workflow account hiện tại / nhân vật %d: %s ===",
+                workflow_phase,
                 current_character,
                 remaining_workflows,
             )
@@ -1431,60 +1557,10 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
 
         # Lấy chu trình đang chờ chạy đầu tiên
         current_wf = remaining_workflows[0]
-        if current_wf == "vip":
-            log.info(">>> Thực hiện chu trình: NHẬN VIP <<<")
-            if getattr(config, "ENABLE_VIP_CLAIM", False):
-                _claim_vip(device)
-            else:
-                log.info("Nhận VIP tự động bị tắt trong cấu hình.")
-            _prepare_world_only(device)
-            _finish_current_workflow(remaining_workflows, "vip", "vip done")
-            continue
-
-        elif current_wf == "alliance":
-            log.info(">>> Thực hiện chu trình: HOẠT ĐỘNG LIÊN MINH <<<")
-            _prepare_world_only(device)
-            from .chores import do_alliance_help, do_alliance_gifts, do_alliance_territory, do_alliance_tech
-            alliance_gifts_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_GIFTS_PROBABILITY", 0.30))))
-            alliance_territory_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_TERRITORY_PROBABILITY", 0.30))))
-            alliance_tech_prob = max(0.0, min(1.0, float(getattr(config, "ALLIANCE_TECH_PROBABILITY", 0.30))))
-            # Trợ giúp liên minh: 100% tỷ lệ thực hiện
-            try:
-                do_alliance_help(device)
-            except Exception as e:
-                log.warning("Lỗi trợ giúp liên minh: %s", e)
-            # Nhận quà liên minh: 30% tỷ lệ thực hiện
-            if random.random() < alliance_gifts_prob:
-                try:
-                    do_alliance_gifts(device)
-                except Exception as e:
-                    log.warning("Lỗi nhận quà liên minh: %s", e)
-            # Thu tài nguyên lãnh thổ: 30% tỷ lệ thực hiện
-            if random.random() < alliance_territory_prob:
-                try:
-                    do_alliance_territory(device)
-                except Exception as e:
-                    log.warning("Lỗi thu tài nguyên lãnh thổ: %s", e)
-            # Đóng góp công nghệ liên minh: 30% tỷ lệ thực hiện
-            if random.random() < alliance_tech_prob:
-                try:
-                    do_alliance_tech(device)
-                except Exception as e:
-                    log.warning("Lỗi đóng góp công nghệ: %s", e)
-            _prepare_world_only(device)
-            _finish_current_workflow(remaining_workflows, "alliance", "alliance done")
-            continue
-
-        elif current_wf == "getres":
-            log.info(">>> Thực hiện chu trình: LẤY TÀI NGUYÊN NỘI THÀNH <<<")
-            _prepare_world_only(device)
-            from .chores import collect_city_resources
-            try:
-                collect_city_resources(device, max_resources=4)
-            except Exception as e:
-                log.warning("Lỗi lấy tài nguyên nội thành: %s", e)
-            _prepare_world_only(device)
-            _finish_current_workflow(remaining_workflows, "getres", "getres done")
+        if current_wf == "chores":
+            log.info(">>> Thuc hien chu trinh: VIEC VAT <<<")
+            _run_chores_workflow(device)
+            _finish_current_workflow(remaining_workflows, "chores", "chores done")
             continue
 
         elif current_wf == "farm":

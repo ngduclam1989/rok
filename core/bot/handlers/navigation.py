@@ -533,28 +533,45 @@ def _switch_from_account_center(
     matched_account: str,
     *,
     wrap_to_first: bool,
+    force_target_accounts: list[str] | None = None,
+    forced_result: str = "wrapped",
 ) -> str:
     accounts = _load_known_accounts()
-    run_order = _account_run_order(accounts)
-    remaining_accounts = _remaining_accounts(accounts)
-    if remaining_accounts:
-        target_accounts = remaining_accounts
-        result_after_login = "switched"
-    else:
-        if not wrap_to_first:
+    if force_target_accounts is not None:
+        target_accounts = force_target_accounts
+        result_after_login = forced_result
+        if target_accounts and matched_account == target_accounts[0]:
             log.info(
-                "Account hien tai la account cuoi trong thu tu chay. "
-                "Khong wrap ve account dau; giu nguyen account hien tai: %s",
+                "Da dung san o account muc tieu (%s). Khong can switch lai.",
                 matched_account,
             )
-            reset_account_run_tracking(matched_account)
-            return "done"
-        target_accounts = run_order[:1]
-        result_after_login = "wrapped"
-        log.info(
-            "Account hiện tại là account cuối. Sẽ quay về account đầu tiên trong thứ tự chạy: %s",
-            target_accounts[0] if target_accounts else None,
-        )
+            return result_after_login
+    else:
+        remaining_accounts = _remaining_accounts(accounts)
+        if remaining_accounts:
+            target_accounts = remaining_accounts
+            result_after_login = "switched"
+        else:
+            if not wrap_to_first:
+                log.info(
+                    "Account hien tai la account cuoi trong thu tu chay. "
+                    "Khong wrap ve account dau; giu nguyen account hien tai: %s",
+                    matched_account,
+                )
+                reset_account_run_tracking(matched_account)
+                return "done"
+            if accounts and matched_account == accounts[0]:
+                log.info(
+                    "Da dung san o account dau tien trong account.txt (%s). Khong can switch lai.",
+                    matched_account,
+                )
+                return "wrapped"
+            target_accounts = accounts[:1]
+            result_after_login = "wrapped"
+            log.info(
+                "Account hiện tại là account cuối. Sẽ quay về account đầu tiên trong account.txt: %s",
+                target_accounts[0] if target_accounts else None,
+            )
     if not _tap_switch_account_by_ocr(device, screen):
         _tap_random_ref_region(
             device,
@@ -715,6 +732,69 @@ def handle_switch_account(device: Device, *, wrap_to_first: bool = True) -> str:
         )
     except Exception as err:
         log.warning("Không lưu được ảnh debug vùng Tài khoản: %s", err)
+    return "failed"
+
+
+def handle_switch_to_first_account(device: Device) -> str:
+    """Switch directly to the first account in account.txt, usually lam6."""
+    accounts = _load_known_accounts()
+    if not accounts:
+        log.warning("Khong co account nao trong account.txt de dua ve account dau")
+        return "failed"
+
+    first_account = accounts[0]
+    log.info("=== Ep dua ve account dau tien trong account.txt: %s ===", first_account)
+    screen_settings = _open_settings_screen(device, "dua ve account dau tien")
+    if screen_settings is None:
+        try:
+            current_screen = device.snapshot()
+        except Exception:
+            log.exception("Khong chup duoc man hinh de ep ve account dau")
+            return "failed"
+        matched_account = _log_current_account_mapping(current_screen)
+        if matched_account is not None:
+            return _switch_from_account_center(
+                device,
+                current_screen,
+                matched_account,
+                wrap_to_first=True,
+                force_target_accounts=[first_account],
+                forced_result="wrapped",
+            )
+        if _looks_like_settings_screen(current_screen):
+            screen_settings = current_screen
+        else:
+            return "failed"
+
+    region_px = _scale_ref_region(screen_settings, _ACCOUNT_TEXT_REGION_REF)
+    hits = ocr.find_all(screen_settings, region=region_px)
+    for hit in hits:
+        if hit.confidence < 0.55:
+            continue
+        text = ocr.strip_diacritics(hit.text).lower()
+        if any(needle in text for needle in _ACCOUNT_TEXT_NEEDLES):
+            _tap_settings_tile_from_label(device, screen_settings, hit, "o Tai khoan")
+            wait_sec = random.uniform(5.0, 10.0)
+            log.info("Da cham Tai khoan de ep ve account dau, cho %.2fs...", wait_sec)
+            time.sleep(wait_sec)
+            try:
+                next_screen = device.snapshot()
+            except Exception:
+                log.exception("Khong chup duoc man account center")
+                return "failed"
+            matched_account = _log_current_account_mapping(next_screen)
+            if matched_account is None:
+                return "failed"
+            return _switch_from_account_center(
+                device,
+                next_screen,
+                matched_account,
+                wrap_to_first=True,
+                force_target_accounts=[first_account],
+                forced_result="wrapped",
+            )
+
+    log.warning("Khong tim thay muc Tai khoan de ep ve account dau")
     return "failed"
 
 

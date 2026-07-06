@@ -33,19 +33,6 @@ def handle_march_plan(
             True, "đã xử lý popup mạng giữa march_plan", sleep_after=1.5,
         )
 
-    # General with zero troops: disabled HÀNH QUÂN reads "Không có Đội Quân".
-    if ocr_text_in(screen, (55, 75, 100, 100),
-                   ("Khong co Doi", "khong co doi", "khong co d",
-                    "khong co quan", "0/76", "0/100", "0 / 76",
-                    "0 / 100"),
-                   threshold=0.4):
-        log.info("Bảng quân -> tướng chưa có quân, đóng bảng")
-        x, y = pct_to_px(screen, 96.0, 8.0)
-        device.tap(x, y)
-        return StepResult(
-            True, "tướng trống, đã đóng bảng", sleep_after=1.5,
-        )
-
     pos = tap_template(
         device, screen, "btn_hanh_quan.png", 0.78,
         region_pct=(55, 75, 100, 100),
@@ -54,7 +41,7 @@ def handle_march_plan(
     if pos is not None:
         log.info("Chạm HÀNH QUÂN cuối cùng @(%d,%d)", *pos)
         return StepResult(
-            True, "đã gửi quân", sleep_after=1.5, goal_reached=True,
+            True, "đã gửi quân", sleep_after=0.8, goal_reached=True,
         )
 
     log.info("Bảng quân (bước đầu) -> chạm Quân mới")
@@ -64,7 +51,21 @@ def handle_march_plan(
         long_tap=True,
     )
     if pos is not None:
-        return StepResult(True, "đã mở bảng chọn quân", sleep_after=1.5)
+        return StepResult(True, "đã mở bảng chọn quân", sleep_after=0.8)
+
+    # Slow fallback: only OCR the disabled/no-troops state after the expected
+    # action buttons are not visible. Normal farm runs avoid this OCR pass.
+    if ocr_text_in(screen, (55, 75, 100, 100),
+                   ("Khong co Doi", "khong co doi", "khong co d",
+                    "khong co quan", "0/76", "0/100", "0 / 76",
+                    "0 / 100"),
+                   threshold=0.4):
+        log.info("Bảng quân -> tướng chưa có quân, đóng bảng")
+        x, y = pct_to_px(screen, 96.0, 8.0)
+        device.tap(x, y)
+        return StepResult(
+            True, "tướng trống, đã đóng bảng", sleep_after=1.0,
+        )
 
     # Neither button found — likely the general has no troops or we
     # caught an animation frame. Force-close the panel via top-right X.

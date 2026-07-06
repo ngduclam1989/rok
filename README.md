@@ -74,6 +74,9 @@ Chay rieng vong chuyen account de debug loi switch acc:
 .venv\Scripts\python.exe main.py switchacc --serial YOUR_SERIAL --control-mode scrcpy --loops 4
 ```
 
+Khi `--loops` lon hon `0`, het so luot test bot se ep chuyen ve account dau
+tien trong `account.txt` (`lam6`) truoc khi ket thuc command.
+
 ## Cau hinh devices.yaml
 
 Vi du cau hinh dang dung:
@@ -119,19 +122,18 @@ farm_scenario: random   # random / 1 / 2 / 3 / 4 / 5
 
 ## Luong action chinh
 
-Bot chia thanh 2 pha lon:
+Moi account/nhan vat se co mot danh sach action phang:
 
 ```text
-farm -> chores
+farm + tung viec vat rieng le
 ```
 
-Pha `farm` chay truoc tu account dau den account cuoi. Khi farm xong account
-cuoi, bot khong quay ve account dau ngay; no giu account cuoi va bat dau pha
-`chores`. Pha `chores` chay nguoc tu account cuoi ve account dau, xong account
-dau thi force-stop game va dung bot.
+Thu tu `farm` va tung viec vat duoc shuffle rieng cho tung account/nhan vat.
+Vi du co the la `vip/boost -> farm -> nhan qua -> cong nghe -> ...`, hoac
+`farm -> tai nguyen noi thanh -> tro giup -> ...`. Khi toan bo action trong
+danh sach da xong, bot moi chuyen nhan vat/account tiep theo.
 
-`farm` la workflow rieng. Tat ca hanh dong con lai nam trong `chores` va duoc
-xao tron ben trong workflow nay.
+Tat ca viec vat deu la action rieng va duoc random ngang hang voi `farm`.
 
 ### chores
 
@@ -144,7 +146,7 @@ xao tron ben trong workflow nay.
 - Dong gop cong nghe lien minh: 100%.
 - VIP/Boost: chi them vao chores neu `enable_vip_claim: true`.
 
-Thu tu cac viec trong `chores` duoc random, nhung tat ca deu bat buoc chay.
+Thu tu cac viec vat duoc random cung voi `farm`, nhung tat ca deu bat buoc chay.
 Truoc va sau moi viec, bot co gang dua man hinh ve WORLD/CITY de viec tiep theo
 khong bi lech state.
 
@@ -239,33 +241,31 @@ Quy tac chay:
 Voi thu tu hien tai cua anh, chu trinh day du la:
 
 ```text
-FARM:
+MOI ACCOUNT / MOI CHAR:
+random(farm, lay tai nguyen noi thanh, tro giup, nhan qua, lanh tho, cong nghe, vip/boost)
+
+ACCOUNT:
 lam6 char 1  -> lam6 char 2
 lam29 char 1 -> lam29 char 2
 lam999 char 1 -> lam999 char 2
 lam1999 char 1 -> lam1999 char 2
 
-VIEC VAT:
-lam1999 -> lam999 -> lam29 -> lam6
-
 XONG:
-dang o lam6 -> quay lai lam1999
+tu account cuoi -> quay lai lam6
 -> force-stop com.rok.gp.vn -> B6 ngu theo cycle_wait_min +/- cycle_wait_variance_min
 ```
 
-Sau khi viec vat chay nguoc ve `lam6`, bot wrap lai account cuoi `lam1999`,
-cho game load on dinh roi tat app. B6 khong doc timer Doi Quan nua; bot chi
-ngu theo `cycle_wait_min +/- cycle_wait_variance_min` trong `devices.yaml` roi
-tu dong bat lai chu trinh moi. Vi du `cycle_wait_min: 60` va
+Sau khi account cuoi chay xong ca `farm` va `chores`, bot wrap ve account dau
+tien trong `account.txt` la `lam6`, cho game load on dinh roi tat app. B6 khong
+doc timer Doi Quan nua; bot chi ngu theo `cycle_wait_min +/- cycle_wait_variance_min`
+trong `devices.yaml` roi tu dong bat lai chu trinh moi. Vi du `cycle_wait_min: 60` va
 `cycle_wait_variance_min: 10` thi moi vong se ngu ngau nhien 50-70 phut.
 
 Khi switch account tra ve:
 
 - `switched`: account tiep theo thanh cong, quay lai `char 1`.
-- Farm phase: khi het account ke tiep, bot chuyen sang pha `chores` ngay tren
-  account cuoi hien tai.
-- Chores phase: khi het account ke tiep, bot dang o account dau va goi
-  `device.shutdown()`.
+- `wrapped`: da het account, bot quay ve account dau tien trong `account.txt`
+  (`lam6`), cho game load on dinh, roi goi `device.shutdown()`.
 
 Neu switch account loi:
 

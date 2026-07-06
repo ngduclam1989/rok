@@ -134,21 +134,27 @@ def handle_search_panel(
         )
 
     # Always tap the target resource tab to ensure we are correctly selected.
-    tab_pos = _find_resource_tab(screen, resource)
+    tab_pos = None if config.SKIP_LEVEL_ADJUST else _find_resource_tab(screen, resource)
     if tab_pos is None:
         tab_x_pct = config._RESOURCE_TAB_X_PCT.get(resource, 0.50)
         tab_x, tab_y = int(w * tab_x_pct), int(h * 0.91)
-        log.warning(
-            "OCR không thấy tab %s -> dùng toạ độ mặc định @(%d,%d)",
-            resource.upper(), tab_x, tab_y,
-        )
+        if config.SKIP_LEVEL_ADJUST:
+            log.info(
+                "Fast farm: dùng tọa độ tab %s @(%d,%d)",
+                resource.upper(), tab_x, tab_y,
+            )
+        else:
+            log.warning(
+                "OCR không thấy tab %s -> dùng toạ độ mặc định @(%d,%d)",
+                resource.upper(), tab_x, tab_y,
+            )
     else:
         tab_x, tab_y = tab_pos
     log.info(
         "Chạm tab %s @(%d,%d)", resource.upper(), tab_x, tab_y,
     )
-    device.long_tap(tab_x, tab_y, duration_ms=200)
-    pause(1.2)
+    device.long_tap(tab_x, tab_y, duration_ms=80 if config.SKIP_LEVEL_ADJUST else 200)
+    pause(0.35 if config.SKIP_LEVEL_ADJUST else 1.2)
     try:
         screen = device.snapshot()
     except Exception:
@@ -251,8 +257,11 @@ def handle_search_panel(
     # ở iter này (level đã = target từ trước), iter trước có thể vừa
     # mới chỉnh xong. Đợi 1.2s cho UI ổn định rồi mới tap, tránh tap
     # vào lúc animation slider/panel còn đang chạy -> game bỏ qua.
-    log.info("Chạm TÌM KIẾM (chờ 0.5s cho UI ổn định)")
-    pause(0.5)
+    log.info(
+        "Chạm TÌM KIẾM (chờ %.2fs cho UI ổn định)",
+        0.15 if config.SKIP_LEVEL_ADJUST else 0.5,
+    )
+    pause(0.15 if config.SKIP_LEVEL_ADJUST else 0.5)
     pos = tap_template(
         device, screen, "btn_tim_kiem.png", 0.75,
         region_pct=(20, 55, 95, 80),
@@ -262,4 +271,5 @@ def handle_search_panel(
         return StepResult(
             False, "không thấy nút TÌM KIẾM", sleep_after=1.5,
         )
-    return StepResult(True, "đã chạm tìm kiếm", sleep_after=2.5)
+    sleep_after = 1.2 if config.SKIP_LEVEL_ADJUST else 2.5
+    return StepResult(True, "đã chạm tìm kiếm", sleep_after=sleep_after)

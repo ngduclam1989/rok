@@ -14,7 +14,11 @@ from core.device import Device
 
 from . import config
 from .runtime import _handle_logo_18_check, _prepare_world_only
-from .handlers.navigation import handle_switch_account, reset_account_run_tracking
+from .handlers.navigation import (
+    handle_switch_account,
+    handle_switch_to_first_account,
+    reset_account_run_tracking,
+)
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +105,7 @@ def run_switch_account_loop(
     device = Device(serial, templates_dir, control_mode=control_mode)
     consecutive_fails = 0
     completed = 0
+    interrupted = False
 
     try:
         if open_game:
@@ -121,6 +126,7 @@ def run_switch_account_loop(
                 _prepare_world_only(device)
                 result = handle_switch_account(device, wrap_to_first=True)
             except KeyboardInterrupt:
+                interrupted = True
                 raise
             except Exception as err:
                 log.exception("[switch-loop] Loi trong loop chuyen acc: %s", err)
@@ -166,6 +172,18 @@ def run_switch_account_loop(
                 log.info("[switch-loop] Cho %.1fs cho account moi load...", wait_after_switch_sec)
                 time.sleep(wait_after_switch_sec)
     finally:
+        if loops > 0 and not interrupted and accounts:
+            log.info("[switch-loop] Da chay xong %d loop -> ep dua ve account dau: %s", completed, accounts[0])
+            try:
+                _handle_logo_18_check(device)
+                _prepare_world_only(device)
+                result = handle_switch_to_first_account(device)
+                log.info("[switch-loop] Ket qua dua ve account dau: %s", result)
+                if result != "failed" and wait_after_switch_sec > 0:
+                    log.info("[switch-loop] Cho %.1fs cho account dau load on dinh...", wait_after_switch_sec)
+                    time.sleep(wait_after_switch_sec)
+            except Exception:
+                log.exception("[switch-loop] Dua ve account dau sau khi chay xong that bai")
         try:
             device.close()
         except Exception:

@@ -267,7 +267,15 @@ Khi switch account tra ve:
 - `wrapped`: da het account, bot quay ve account dau tien trong `account.txt`
   (`lam6`), cho game load on dinh, roi goi `device.shutdown()`.
 
-Neu switch account loi:
+Neu switch nhan vat (char 1 -> char 2) loi:
+
+- Bot thu toi da 5 lan, moi lan that bai se dua ve WORLD roi cho 5s.
+- Neu ca 5 lan fail, bot kill app, mo lai game, dua ve WORLD roi tra ve `retry`
+  de vong lap chinh tiep tuc thu lai (KHONG dung bot).
+- Bot khong bao gio dung o buoc nay; se cu thu cho den khi thanh cong, sau do
+  tiep tuc chay char 2 va cac account con lai cho den khi quay ve acc dau tien.
+
+Neu switch account (char 2 -> account tiep theo) loi:
 
 - Moi lan switch account se thu toi da 3 lan trong cung man hinh.
 - Neu ca 3 lan fail, bot dua ve WORLD, cho 20-35s va retry mem lan sau.

@@ -1021,8 +1021,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         "character" nếu đã chuyển sang char 2,
         "account" nếu đã chuyển sang account kế tiếp,
         "wrapped" nếu đã quay về account đầu danh sách,
-        "retry" nếu chuyển account lỗi tạm thời và cần thử lại,
-        "stop" nếu hết việc hoặc thao tác thất bại.
+        "retry" nếu chuyển nhân vật/account lỗi — caller tiếp tục vòng lặp (không dừng bot),
+        "stop" nếu chuyển account thất bại hoàn toàn (hiếm, chỉ từ path account).
     """
     log.info("=== Đã hoàn thành mọi chu trình của nhân vật hiện tại! ===")
     _return_to_world(device, max_attempts=4)
@@ -1030,10 +1030,38 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
 
     if current_character == 1:
         log.info("=== Tiến hành chuyển sang nhân vật thứ 2... ===")
-        success = handle_switch_character(device)
+        success = False
+        for attempt in range(1, 6):
+            log.info("Thử chuyển nhân vật lần %d/5...", attempt)
+            success = handle_switch_character(device)
+            if success:
+                break
+            log.warning(
+                "Chuyển nhân vật lần %d/5 thất bại. Đưa về WORLD rồi thử lại nếu còn lượt...",
+                attempt,
+            )
+            _return_to_world(device, max_attempts=4)
+            if attempt < 5:
+                pause(5.0)
         if not success:
-            log.warning("Chuyển nhân vật thất bại! Đang dừng bot...")
-            return "stop"
+            log.warning(
+                "Chuyển nhân vật thất bại sau 5 lần thử! "
+                "Kill app -> bật lại game -> thử lại (không dừng bot)."
+            )
+            try:
+                device.shutdown()
+            except Exception:
+                log.exception("Kill app sau khi chuyển nhân vật thất bại")
+            pause(3.0)
+            try:
+                device.start_game()
+                device._back_locked_until = 0.0
+                pause(10.0)
+                _handle_logo_18_check(device)
+                _prepare_world_only(device)
+            except Exception:
+                log.exception("Bật lại game sau khi chuyển nhân vật thất bại")
+            return "retry"
         log.info("Chuyển nhân vật thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
         pause(5.0)
         _handle_logo_18_check(device)
@@ -1426,17 +1454,20 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             if transition == "retry":
                 switch_account_fail_streak += 1
                 log.warning(
-                    "Chuyen account retry lien tiep %d/5. Giu nguyen nhan vat/account de thu lai...",
+                    "Chuyen nhan vat/account retry lien tiep %d. Tiep tuc vong lap (khong dung bot)...",
                     switch_account_fail_streak,
                 )
+                # Neu _handle_queue_full da tu kill+restart (nhan vat fail 5 lan),
+                # streak co the tang cao -> reset sau nguong 5 de tranh main loop
+                # trigger them 1 lan kill+restart nua (da xu ly ben trong roi).
                 if switch_account_fail_streak > 5:
                     log.warning(
-                        "Chuyen account fail qua 5 lan -> kill app, mo lai game, roi chay lai chuyen acc theo danh sach.",
+                        "Streak chuyen acc/nhan vat > 5 lan -> kill app, mo lai game de phuc hoi.",
                     )
                     try:
                         device.shutdown()
                     except Exception:
-                        log.exception("Kill app sau switch-account fail qua 5 lan that bai")
+                        log.exception("Kill app sau switch fail qua 5 lan")
                     pause(3.0)
                     try:
                         device.start_game()
@@ -1445,7 +1476,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                         _handle_logo_18_check(device)
                         _prepare_world_only(device)
                     except Exception:
-                        log.exception("Mo lai game sau switch-account fail qua 5 lan that bai")
+                        log.exception("Mo lai game sau switch fail qua 5 lan")
                     switch_account_fail_streak = 0
                 continue
             switch_account_fail_streak = 0

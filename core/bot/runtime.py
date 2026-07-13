@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import logging
 import random
+import threading
 import time
 from dataclasses import dataclass
 
@@ -69,6 +70,42 @@ def _cleanup_captures() -> None:
                 p.unlink(missing_ok=True)
     except Exception as e:
         log.warning("Lỗi dọn dẹp ảnh captures: %s", e)
+
+
+def _start_app_watchdog(device: Device, stop_event: threading.Event, interval: float = 60.0) -> threading.Thread:
+    """Khởi động background thread kiểm tra app crash mỗi `interval` giây.
+
+    Độc lập hoàn toàn với vòng lặp chính — không chờ theo vòng lặp,
+    cứ đúng `interval` giây thì check một lần dù main loop đang
+    làm gì. Nếu phát hiện game không chạy thì tự bật lại.
+    """
+    def _watchdog() -> None:
+        log.info("[watchdog] Bắt đầu theo dõi app crash mỗi %.0fs.", interval)
+        while not stop_event.wait(timeout=interval):
+            # stop_event.wait() trả True nếu được set -> thoát
+            if should_stop():
+                break
+            try:
+                running = device.is_game_running()
+            except Exception as e:
+                log.warning("[watchdog] Không kiểm tra được trạng thái app: %s", e)
+                continue
+            if not running:
+                log.warning(
+                    "[watchdog] Phát hiện game KHÔNG chạy -> tự động bật lại!"
+                )
+                try:
+                    device.start_game()
+                    device._back_locked_until = 0.0
+                except Exception as e:
+                    log.error("[watchdog] Bật lại game thất bại: %s", e)
+            else:
+                log.debug("[watchdog] App đang chạy bình thường.")
+        log.info("[watchdog] Dừng theo dõi app crash.")
+
+    t = threading.Thread(target=_watchdog, name="app-watchdog", daemon=True)
+    t.start()
+    return t
 
 
 def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4) -> tuple[int | None, int | None]:
@@ -142,7 +179,14 @@ class _GatheringBoostAction:
             [self.assets.item_blue, self.assets.item_purple],
         )
         if selected is None:
-            log.info("[boost] B8: no enhanced gathering item found.")
+            log.info("[boost] B8: no item found, retry B7 once and scan again.")
+            self.tap_random(self.boost_tab_region, label="B7 retry boost tab")
+            self.bot.snapshot_debug("B8_retry_before_item_search")
+            selected = self.find_first_available_item(
+                [self.assets.item_blue, self.assets.item_purple],
+            )
+        if selected is None:
+            log.info("[boost] B8 retry: still no enhanced gathering item found.")
             self.tap_random(self.close_region, label="B8 no item -> close")
             self.bot.snapshot_debug("B8_no_item_after_close")
             return False
@@ -1298,6 +1342,19 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     install_pause_hotkey()   # Đăng kí phím tắt Ctrl+Space pause/resume
     register_serial(device.serial)
     CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Khởi động watchdog thread kiểm tra app crash mỗi 60s (độc lập với vòng lặp)
+    _watchdog_stop = threading.Event()
+    _watchdog_thread = _start_app_watchdog(device, _watchdog_stop, interval=60.0)
+    try:
+        _run_body_inner(device, max_iterations)
+    finally:
+        _watchdog_stop.set()
+        _watchdog_thread.join(timeout=5.0)
+        log.info("[watchdog] Thread theo dõi app đã dừng.")
+
+
+def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
     # Dọn STOP flag cũ ở startup:
     #   * STOP.flag (global): có thể là rác từ lần fleet crash, hoặc
     #     từ lần chạy trước user tạo tay rồi quên. Xoá để không bị
@@ -1305,6 +1362,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     #   * STOP_<serial>.flag (riêng máy): tương tự.
     # Fleet KHÔNG dùng STOP.flag global (chỉ dùng per-device) nên
     # xoá ở đây không ảnh hưởng đến fleet đang chạy.
+
     if STOP_FLAG.exists():
         log.info("Xoá STOP.flag cũ")
         STOP_FLAG.unlink()

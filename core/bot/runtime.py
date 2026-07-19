@@ -1219,8 +1219,8 @@ _CYCLE_FARM_SCENARIOS = {
     "1": "4 luot dau random du 4 loai; luot 5 random 1 trong 4 loai",
     "2": "2 luot dau gold; 3 luot sau gom du corn/stone/wood theo thu tu random",
     "3": "luot dau gold; 4 luot sau gom du 4 loai theo thu tu random",
-    "4": "chay theo thu tu gold, stone, wood, corn, corn",
-    "5": "luot dau corn; 4 luot sau gom du 4 loai theo thu tu random",
+    # "4": "chay theo thu tu gold, stone, wood, corn, corn",
+    # "5": "luot dau corn; 4 luot sau gom du 4 loai theo thu tu random",
 }
 
 
@@ -1242,25 +1242,25 @@ def _build_cycle_farm_plan(scenario_id: str) -> tuple[list[str], list[str]]:
         random.shuffle(tail)
         plan.extend(tail)
         return plan, list(_CYCLE_FARM_RESOURCES)
-    if scenario_id == "4":
-        return ["gold", "stone", "wood", "corn", "corn"], list(_CYCLE_FARM_RESOURCES)
-    if scenario_id == "5":
-        plan = ["corn"]
-        tail = list(_CYCLE_FARM_RESOURCES)
-        random.shuffle(tail)
-        plan.extend(tail)
-        return plan, list(_CYCLE_FARM_RESOURCES)
+    # if scenario_id == "4":
+    #     return ["gold", "stone", "wood", "corn", "corn"], list(_CYCLE_FARM_RESOURCES)
+    # if scenario_id == "5":
+    #     plan = ["corn"]
+    #     tail = list(_CYCLE_FARM_RESOURCES)
+    #     random.shuffle(tail)
+    #     plan.extend(tail)
+    #     return plan, list(_CYCLE_FARM_RESOURCES)
     raise ValueError(f"Unknown cycle farm scenario: {scenario_id}")
 
 
 def _cycle_farm_resource_for_dispatch(dispatched_count: int) -> str:
     scenario = str(getattr(config, "FARM_SCENARIO", "random")).strip().lower()
-    if scenario not in {"random", "1", "2", "3", "4", "5"}:
+    if scenario not in {"random", "1", "2", "3"}:  # 4, 5 da bi comment
         log.warning("farm_scenario=%r khong hop le -> dung random", scenario)
         scenario = "random"
 
     if not getattr(config, "CYCLE_SCENARIO_ID", None):
-        scenario_id = random.choice(["1", "2", "3", "4", "5"]) if scenario == "random" else scenario
+        scenario_id = random.choice(["1", "2", "3"]) if scenario == "random" else scenario  # bo 4, 5
         plan, fallback_pool = _build_cycle_farm_plan(scenario_id)
         config.CYCLE_SCENARIO_ID = scenario_id
         config.CYCLE_RESOURCES = plan

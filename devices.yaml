@@ -29,7 +29,7 @@ defaults:
   alliance_tech_probability: 1.0       # Việc vặt bắt buộc chạy
   
   # Cấu hình chu kỳ chờ chạy lại bot (B6):
-  cycle_wait_min: 125                # Thời gian chờ cơ bản giữa các lượt chạy (phút)
+  cycle_wait_min: 65                # Thời gian chờ cơ bản giữa các lượt chạy (phút)
   cycle_wait_variance_min: 10          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
 
 
@@ -37,7 +37,8 @@ defaults:
   # Cấu hình thời gian chờ:
   delay_after_popup_min: 0     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
   delay_after_popup_max: 3    # Thời gian chờ tối đa sau khi tắt popup (giây)
-  delay_after_dispatch_min: 1 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
+  delay_after_dispatch_min: 1 # Thời gian chờ tối thiểu sau khi gửi quân (giây)ls
+
   delay_after_dispatch_max: 10 # Thời gian chờ tối đa sau khi gửi quân (giây)
   enable_city_world_toggle: true         # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
   city_world_toggle_probability: 0.2    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)

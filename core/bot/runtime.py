@@ -40,6 +40,7 @@ from .handlers import (
     handle_switch_account,
     handle_switch_character,
     handle_switch_to_first_account,
+    reset_account_run_tracking,
     reset_slider_state,
 )
 from .readers import read_slot_badge
@@ -1376,6 +1377,7 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
     config.CYCLE_RESOURCES = None
     config.CYCLE_SCENARIO_ID = None
     config.CYCLE_FALLBACK_RESOURCES = None
+    reset_account_run_tracking()
 
     # B0: đứng im 10s để check thông tin device, app, màn hình
     log.info("B0: Đứng im 10s để check thông tin thiết bị, ứng dụng và màn hình...")

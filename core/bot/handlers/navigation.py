@@ -545,6 +545,7 @@ def _switch_from_account_center(
                 "Da dung san o account muc tieu (%s). Khong can switch lai.",
                 matched_account,
             )
+            reset_account_run_tracking(matched_account)
             return result_after_login
     else:
         remaining_accounts = _remaining_accounts(accounts)
@@ -565,6 +566,7 @@ def _switch_from_account_center(
                     "Da dung san o account dau tien trong account.txt (%s). Khong can switch lai.",
                     matched_account,
                 )
+                reset_account_run_tracking(matched_account)
                 return "wrapped"
             target_accounts = accounts[:1]
             result_after_login = "wrapped"
@@ -622,6 +624,8 @@ def _switch_from_account_center(
         return "failed"
     if not _confirm_selected_account_and_login(device, login_screen, selected_account):
         return "failed"
+    if result_after_login == "wrapped":
+        reset_account_run_tracking(selected_account)
     return result_after_login
 
 

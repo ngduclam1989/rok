@@ -14,6 +14,7 @@ from .navigation import (
     handle_switch_character,
     handle_switch_to_first_account,
     handle_world,
+    reset_account_run_tracking,
 )
 from .network import check_and_handle_network_popup, handle_network_error
 from .popups import handle_build_menu, handle_exit_dialog, handle_popup, handle_gems_shop
@@ -45,5 +46,6 @@ __all__ = [
     "handle_switch_account",
     "handle_switch_character",
     "handle_switch_to_first_account",
+    "reset_account_run_tracking",
     "reset_slider_state",
 ]

@@ -38,7 +38,13 @@ class Device:
         cause of taps landing in the wrong place on this Samsung A71.
     """
 
-    def __init__(self, serial: str, templates_dir: Path, control_mode: str = "adb") -> None:
+    def __init__(
+        self,
+        serial: str,
+        templates_dir: Path,
+        control_mode: str = "adb",
+        scrcpy_window_path: str | None = None,
+    ) -> None:
         self.serial = serial
         self.templates_dir = templates_dir
         self.control_mode = control_mode
@@ -46,6 +52,8 @@ class Device:
         self._top_hwnd = None
         self._scrcpy_client = None
         self._scrcpy_available = False
+        self._scrcpy_window_proc: subprocess.Popen[bytes] | None = None
+        self._scrcpy_window_log_path: Path | None = None
 
         if ":" in serial:
             try:
@@ -73,6 +81,98 @@ class Device:
 
         if control_mode == "scrcpy":
             self._start_scrcpy_client()
+
+        if scrcpy_window_path:
+            self._start_scrcpy_window(scrcpy_window_path)
+
+    def _start_scrcpy_window(self, scrcpy_window_path: str) -> None:
+        """Open an external scrcpy window for watching and manual control."""
+        raw_path = str(scrcpy_window_path).strip().strip('"')
+        if not raw_path:
+            log.warning(
+                "[%s] open_scrcpy_window=true nhung scrcpy_path dang rong",
+                self.serial,
+            )
+            return
+
+        scrcpy_path = Path(raw_path)
+        if not scrcpy_path.is_absolute():
+            scrcpy_path = Path(__file__).resolve().parent.parent / scrcpy_path
+        if scrcpy_path.is_dir() or scrcpy_path.suffix == "":
+            scrcpy_path = scrcpy_path / "scrcpy.exe"
+
+        if not scrcpy_path.exists():
+            log.error(
+                "[%s] Khong tim thay scrcpy.exe tai: %s",
+                self.serial,
+                scrcpy_path,
+            )
+            return
+
+        cmd = [
+            str(scrcpy_path),
+            "--serial",
+            self.serial,
+            "--stay-awake",
+            "--max-fps",
+            "15",
+            "--window-title",
+            f"RoK Bot - {self.serial}",
+        ]
+        creationflags = 0
+        if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        project_root = Path(__file__).resolve().parent.parent
+        logs_dir = project_root / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        safe_serial = str(self.serial).replace(":", "_").replace(".", "_")
+        self._scrcpy_window_log_path = logs_dir / f"scrcpy_{safe_serial}.log"
+
+        try:
+            with self._scrcpy_window_log_path.open("ab") as scrcpy_log:
+                self._scrcpy_window_proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(scrcpy_path.parent),
+                    stdout=scrcpy_log,
+                    stderr=subprocess.STDOUT,
+                    creationflags=creationflags,
+                )  # noqa: S603 - user-configured local executable
+
+            time.sleep(0.5)
+            exit_code = self._scrcpy_window_proc.poll()
+            if exit_code is not None:
+                detail = ""
+                try:
+                    detail = self._scrcpy_window_log_path.read_text(
+                        encoding="utf-8",
+                        errors="replace",
+                    ).strip()
+                except Exception:
+                    detail = ""
+                self._scrcpy_window_proc = None
+                log.error(
+                    "[%s] scrcpy.exe thoat ngay voi ma %s. Log: %s",
+                    self.serial,
+                    exit_code,
+                    detail or self._scrcpy_window_log_path,
+                )
+                return
+
+            log.info(
+                "[%s] Da mo cua so scrcpy: %s (log=%s)",
+                self.serial,
+                scrcpy_path,
+                self._scrcpy_window_log_path,
+            )
+        except Exception as e:
+            self._scrcpy_window_proc = None
+            log.error(
+                "[%s] Khong the mo cua so scrcpy (%s): %s",
+                self.serial,
+                scrcpy_path,
+                e,
+            )
 
     def _start_scrcpy_client(self) -> None:
         """Start scrcpy video/control sockets for low-latency capture and input."""
@@ -777,6 +877,19 @@ class Device:
 
     def close(self) -> None:
         """Release local resources without closing the Android app."""
+        if self._scrcpy_window_proc is not None:
+            try:
+                if self._scrcpy_window_proc.poll() is None:
+                    self._scrcpy_window_proc.terminate()
+            except Exception:
+                log.debug(
+                    "[%s] Khong the dong cua so scrcpy",
+                    self.serial,
+                    exc_info=True,
+                )
+            finally:
+                self._scrcpy_window_proc = None
+
         if self._scrcpy_client is not None:
             try:
                 self._scrcpy_client.stop()

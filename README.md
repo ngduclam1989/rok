@@ -105,12 +105,12 @@ devices:
 Tai nguyen hop le:
 
 - `corn`, `wood`, `stone`, `gold`, `barb`
-- `cycle_random`, `cycle_1`, `cycle_2`, `cycle_3`, `cycle_4`, `cycle_5`
+- `cycle_random`, `cycle_1`, `cycle_2`, `cycle_3`
 - Co the tach rieng:
 
 ```yaml
 resource: cycle
-farm_scenario: random   # random / 1 / 2 / 3 / 4 / 5
+farm_scenario: random   # random / 1 / 2 / 3
 ```
 
 `cycle_wait_min`:
@@ -168,10 +168,7 @@ Kich ban `cycle`:
   random.
 - `3`: luot dau la `gold`; 4 luot sau gom du `corn/stone/gold/wood` theo thu
   tu random.
-- `4`: chay theo thu tu `gold`, `stone`, `wood`, `corn`, `corn`.
-- `5`: luot dau la `corn`; 4 luot sau gom du `corn/stone/gold/wood` theo thu
-  tu random.
-- `random`: chon ngau nhien 1 trong 5 kich ban tren khi bat dau plan.
+- `random`: chon ngau nhien 1 trong 3 kich ban tren khi bat dau plan.
 
 #### VIP / Boost
 

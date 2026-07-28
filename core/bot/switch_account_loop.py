@@ -90,19 +90,34 @@ def run_switch_account_loop(
     loops=0 means forever. The loop alternates:
     forward 6->...->last, wrap last->6, reverse 6->...->last, then repeat.
     """
+    dev_cfg = None
+    try:
+        fleet_cfg = load_bot_fleet_config(devices_file)
+        dev_cfg = next((c for c in fleet_cfg if c.serial == serial), None)
+    except Exception:
+        dev_cfg = None
+
     if control_mode is None:
         try:
-            fleet_cfg = load_bot_fleet_config(devices_file)
-            dev_cfg = next((c for c in fleet_cfg if c.serial == serial), None)
             control_mode = dev_cfg.control_mode if dev_cfg else "scrcpy"
         except Exception:
             control_mode = "scrcpy"
+    scrcpy_window_path = (
+        dev_cfg.scrcpy_path
+        if dev_cfg and dev_cfg.open_scrcpy_window
+        else None
+    )
 
     accounts = _load_accounts(account_file)
     phase = "forward"
     _seed_phase(accounts, phase)
 
-    device = Device(serial, templates_dir, control_mode=control_mode)
+    device = Device(
+        serial,
+        templates_dir,
+        control_mode=control_mode,
+        scrcpy_window_path=scrcpy_window_path,
+    )
     consecutive_fails = 0
     completed = 0
     interrupted = False

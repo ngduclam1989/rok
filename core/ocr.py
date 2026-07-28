@@ -7,15 +7,22 @@ crop is used — callers don't have to add the region offset themselves.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
+
+os.environ.setdefault(
+    "PADDLE_PDX_CACHE_HOME",
+    str(Path(__file__).resolve().parents[1] / ".paddlex"),
+)
 
 # Pre-downscale long side to this many pixels before PaddleOCR predict.
 # Game UI text is large; 960px keeps it crisp and cuts predict time by

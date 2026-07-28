@@ -121,8 +121,18 @@ def cmd_fleet(args: argparse.Namespace) -> int:
                     # Khởi tạo thiết bị
                     try:
                         control_mode = getattr(c, "control_mode", "adb")
+                        scrcpy_window_path = (
+                            c.scrcpy_path
+                            if getattr(c, "open_scrcpy_window", False)
+                            else None
+                        )
                         bot_engine.config.ENABLE_INPUT_LOCK = False
-                        device = Device(c.serial, TEMPLATES_DIR, control_mode=control_mode)
+                        device = Device(
+                            c.serial,
+                            TEMPLATES_DIR,
+                            control_mode=control_mode,
+                            scrcpy_window_path=scrcpy_window_path,
+                        )
                     except Exception as e:
                         logging.error("Không thể kết nối đến thiết bị %s: %s. Chuyển sang thiết bị tiếp theo.", c.name, e)
                         continue

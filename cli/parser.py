@@ -117,7 +117,7 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
         "--resource",
         choices=[
             "barb", "corn", "wood", "stone", "gold", "cycle",
-            "cycle_random", "cycle_1", "cycle_2", "cycle_3", "cycle_4", "cycle_5",
+            "cycle_random", "cycle_1", "cycle_2", "cycle_3",
             "ngo", "food", "crop",
         ],
         default=None,
@@ -137,10 +137,10 @@ def _build_bot_parser(sub: argparse._SubParsersAction) -> None:
     )
     p.add_argument(
         "--farm-scenario",
-        choices=["random", "1", "2", "3", "4", "5"],
+        choices=["random", "1", "2", "3"],
         default=None,
         help=(
-            "Kich ban farm khi --resource cycle: random, 1, 2, 3, 4, hoac 5 "
+            "Kich ban farm khi --resource cycle: random, 1, 2, hoac 3 "
             "(mac dinh lay tu devices.yaml hoac random)."
         ),
     )

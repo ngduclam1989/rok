@@ -168,9 +168,19 @@ def cmd_bot(args: argparse.Namespace) -> int:
         control_mode = args.control_mode
         if control_mode is None:
             control_mode = dev_cfg.control_mode if dev_cfg else "adb"
+        scrcpy_window_path = (
+            dev_cfg.scrcpy_path
+            if dev_cfg and dev_cfg.open_scrcpy_window
+            else None
+        )
 
         bot_engine.config.ENABLE_INPUT_LOCK = False
-        device = Device(serial, TEMPLATES_DIR, control_mode=control_mode)
+        device = Device(
+            serial,
+            TEMPLATES_DIR,
+            control_mode=control_mode,
+            scrcpy_window_path=scrcpy_window_path,
+        )
         try:
             bot_engine.run(device, max_iterations=args.max_iter)
         finally:

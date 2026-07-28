@@ -21,6 +21,8 @@ defaults:
   skip_level_adjust: false
   turn_wait_min: 60
   control_mode: scrcpy      # scrcpy (máy thật/ADB nhanh), adb hoặc physical_mouse
+  open_scrcpy_window: false # true nếu muốn tự mở cửa sổ scrcpy.exe khi bot chạy
+  scrcpy_path: ""           # Có thể điền thư mục scrcpy hoặc đường dẫn scrcpy.exe
   cycle_wait_min: 120          # Thời gian chờ cơ bản giữa các lượt chạy (phút)
   cycle_wait_variance_min: 10  # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
   

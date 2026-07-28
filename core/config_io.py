@@ -29,6 +29,8 @@ _BOT_CONFIG_DEFAULTS: dict[str, object] = {
     "skip_level_adjust": False,
     "turn_wait_min": 60,
     "control_mode": "adb",
+    "open_scrcpy_window": False,
+    "scrcpy_path": "",
 }
 
 def split_resource_and_farm_scenario(
@@ -42,7 +44,7 @@ def split_resource_and_farm_scenario(
     scenario = str(farm_scenario or "random").strip().lower()
     if r in ("cycle_random", "cycle-random", "cycle:random", "cyclerandom"):
         return "cycle", "random"
-    for sid in ("1", "2", "3", "4", "5"):
+    for sid in ("1", "2", "3"):
         if r in (f"cycle_{sid}", f"cycle-{sid}", f"cycle:{sid}", f"cycle{sid}"):
             return "cycle", sid
     return r, scenario
@@ -73,6 +75,8 @@ class BotDeviceConfig:
     skip_level_adjust: bool
     turn_wait_min: int
     control_mode: str
+    open_scrcpy_window: bool
+    scrcpy_path: str
 
     def to_bot_cli_args(self) -> list[str]:
         """Chuyển thành đối số CLI cho `python main.py bot ...`."""
@@ -438,11 +442,11 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
                 f"resource='{resource}' không hợp lệ. "
                 f"Phải là một trong: {sorted(_VALID_RESOURCES)}",
             )
-        if farm_scenario not in {"random", "1", "2", "3", "4", "5"}:
+        if farm_scenario not in {"random", "1", "2", "3"}:
             raise ValueError(
                 f"Thiết bị {d.get('name', d['serial'])}: "
                 f"farm_scenario='{farm_scenario}' không hợp lệ. "
-                "Phải là một trong: random, 1, 2, 3, 4, 5",
+                "Phải là một trong: random, 1, 2, 3",
             )
 
         out.append(BotDeviceConfig(
@@ -455,6 +459,8 @@ def load_bot_fleet_config(devices_file: Path) -> list[BotDeviceConfig]:
             skip_level_adjust=bool(cfg["skip_level_adjust"]),
             turn_wait_min=int(cfg["turn_wait_min"]),
             control_mode=str(cfg["control_mode"]),
+            open_scrcpy_window=bool(cfg["open_scrcpy_window"]),
+            scrcpy_path=str(cfg["scrcpy_path"] or ""),
         ))
         
     if corrections:

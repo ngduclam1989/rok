@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import logging
 import random
-import threading
 import time
 from dataclasses import dataclass
 
@@ -40,7 +39,6 @@ from .handlers import (
     handle_switch_account,
     handle_switch_character,
     handle_switch_to_first_account,
-    reset_account_run_tracking,
     reset_slider_state,
 )
 from .readers import read_slot_badge
@@ -71,42 +69,6 @@ def _cleanup_captures() -> None:
                 p.unlink(missing_ok=True)
     except Exception as e:
         log.warning("Lỗi dọn dẹp ảnh captures: %s", e)
-
-
-def _start_app_watchdog(device: Device, stop_event: threading.Event, interval: float = 60.0) -> threading.Thread:
-    """Khởi động background thread kiểm tra app crash mỗi `interval` giây.
-
-    Độc lập hoàn toàn với vòng lặp chính — không chờ theo vòng lặp,
-    cứ đúng `interval` giây thì check một lần dù main loop đang
-    làm gì. Nếu phát hiện game không chạy thì tự bật lại.
-    """
-    def _watchdog() -> None:
-        log.info("[watchdog] Bắt đầu theo dõi app crash mỗi %.0fs.", interval)
-        while not stop_event.wait(timeout=interval):
-            # stop_event.wait() trả True nếu được set -> thoát
-            if should_stop():
-                break
-            try:
-                running = device.is_game_running()
-            except Exception as e:
-                log.warning("[watchdog] Không kiểm tra được trạng thái app: %s", e)
-                continue
-            if not running:
-                log.warning(
-                    "[watchdog] Phát hiện game KHÔNG chạy -> tự động bật lại!"
-                )
-                try:
-                    device.start_game()
-                    device._back_locked_until = 0.0
-                except Exception as e:
-                    log.error("[watchdog] Bật lại game thất bại: %s", e)
-            else:
-                log.debug("[watchdog] App đang chạy bình thường.")
-        log.info("[watchdog] Dừng theo dõi app crash.")
-
-    t = threading.Thread(target=_watchdog, name="app-watchdog", daemon=True)
-    t.start()
-    return t
 
 
 def _read_initial_slot_badge_with_retries(device: Device, max_attempts: int = 4) -> tuple[int | None, int | None]:
@@ -176,18 +138,9 @@ class _GatheringBoostAction:
         self.tap_random(self.boost_tab_region, label="B7 boost tab")
         self.bot.snapshot_debug("B8_before_item_search")
 
-        selected = self.find_first_available_item(
-            [self.assets.item_blue, self.assets.item_purple],
-        )
+        selected = self.find_preferred_gathering_item()
         if selected is None:
-            log.info("[boost] B8: no item found, retry B7 once and scan again.")
-            self.tap_random(self.boost_tab_region, label="B7 retry boost tab")
-            self.bot.snapshot_debug("B8_retry_before_item_search")
-            selected = self.find_first_available_item(
-                [self.assets.item_blue, self.assets.item_purple],
-            )
-        if selected is None:
-            log.info("[boost] B8 retry: still no enhanced gathering item found.")
+            log.info("[boost] B8: no enhanced gathering item found.")
             self.tap_random(self.close_region, label="B8 no item -> close")
             self.bot.snapshot_debug("B8_no_item_after_close")
             return False
@@ -247,11 +200,10 @@ class _GatheringBoostAction:
                 return True
         return False
 
-    def find_first_available_item(
+    def find_preferred_gathering_item(
         self,
-        item_images: list[_BoostImageProps],
     ) -> tuple[_BoostImageProps, tuple[int, int]] | None:
-        for item_image in item_images:
+        for item_image in (self.assets.item_blue, self.assets.item_purple):
             found, item_pos = self.bot.check_any(item_image)
             log.info("[boost] B8: check %s found=%s pos=%s.", item_image.path, found, item_pos)
             if found and item_pos is not None:
@@ -601,7 +553,7 @@ def _finish_current_workflow(
     )
     if remaining_workflows and remaining_workflows[0] == expected:
         remaining_workflows.pop(0)
-        log.info("Danh sach workflow con lai: %s", remaining_workflows)
+        log.info("Danh sach workflow cua nhan vat hien tai con lai: %s", remaining_workflows)
         return
 
     log.warning(
@@ -1066,8 +1018,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         "character" nếu đã chuyển sang char 2,
         "account" nếu đã chuyển sang account kế tiếp,
         "wrapped" nếu đã quay về account đầu danh sách,
-        "retry" nếu chuyển nhân vật/account lỗi — caller tiếp tục vòng lặp (không dừng bot),
-        "stop" nếu chuyển account thất bại hoàn toàn (hiếm, chỉ từ path account).
+        "retry" nếu chuyển nhân vật/account lỗi — caller tiếp tục thử chuyển,
+        "stop" nếu hết toàn bộ account hoặc thao tác kết thúc có chủ đích.
     """
     log.info("=== Đã hoàn thành mọi chu trình của nhân vật hiện tại! ===")
     _return_to_world(device, max_attempts=4)
@@ -1090,8 +1042,8 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
                 pause(5.0)
         if not success:
             log.warning(
-                "Chuyển nhân vật thất bại sau 5 lần thử! "
-                "Kill app -> bật lại game -> thử lại (không dừng bot)."
+                "Chuyển nhân vật thất bại sau 5 lần thử. "
+                "Kill app -> bật lại game -> retry chuyển nhân vật, không rebuild workflow."
             )
             try:
                 device.shutdown()
@@ -1256,12 +1208,12 @@ def _build_cycle_farm_plan(scenario_id: str) -> tuple[list[str], list[str]]:
 
 def _cycle_farm_resource_for_dispatch(dispatched_count: int) -> str:
     scenario = str(getattr(config, "FARM_SCENARIO", "random")).strip().lower()
-    if scenario not in {"random", "1", "2", "3"}:  # 4, 5 da bi comment
+    if scenario not in {"random", "1", "2", "3"}:
         log.warning("farm_scenario=%r khong hop le -> dung random", scenario)
         scenario = "random"
 
     if not getattr(config, "CYCLE_SCENARIO_ID", None):
-        scenario_id = random.choice(["1", "2", "3"]) if scenario == "random" else scenario  # bo 4, 5
+        scenario_id = random.choice(["1", "2", "3"]) if scenario == "random" else scenario
         plan, fallback_pool = _build_cycle_farm_plan(scenario_id)
         config.CYCLE_SCENARIO_ID = scenario_id
         config.CYCLE_RESOURCES = plan
@@ -1343,19 +1295,6 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     install_pause_hotkey()   # Đăng kí phím tắt Ctrl+Space pause/resume
     register_serial(device.serial)
     CAPTURES_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Khởi động watchdog thread kiểm tra app crash mỗi 60s (độc lập với vòng lặp)
-    _watchdog_stop = threading.Event()
-    _watchdog_thread = _start_app_watchdog(device, _watchdog_stop, interval=60.0)
-    try:
-        _run_body_inner(device, max_iterations)
-    finally:
-        _watchdog_stop.set()
-        _watchdog_thread.join(timeout=5.0)
-        log.info("[watchdog] Thread theo dõi app đã dừng.")
-
-
-def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
     # Dọn STOP flag cũ ở startup:
     #   * STOP.flag (global): có thể là rác từ lần fleet crash, hoặc
     #     từ lần chạy trước user tạo tay rồi quên. Xoá để không bị
@@ -1363,7 +1302,6 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
     #   * STOP_<serial>.flag (riêng máy): tương tự.
     # Fleet KHÔNG dùng STOP.flag global (chỉ dùng per-device) nên
     # xoá ở đây không ảnh hưởng đến fleet đang chạy.
-
     if STOP_FLAG.exists():
         log.info("Xoá STOP.flag cũ")
         STOP_FLAG.unlink()
@@ -1377,7 +1315,6 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
     config.CYCLE_RESOURCES = None
     config.CYCLE_SCENARIO_ID = None
     config.CYCLE_FALLBACK_RESOURCES = None
-    reset_account_run_tracking()
 
     # B0: đứng im 10s để check thông tin device, app, màn hình
     log.info("B0: Đứng im 10s để check thông tin thiết bị, ứng dụng và màn hình...")
@@ -1505,7 +1442,7 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
         # Nếu đã hoàn thành mọi chu trình cho nhân vật hiện tại:
         if not remaining_workflows:
             log.info(
-                "Danh sach workflow da rong -> moi duoc chuyen nhan vat/account. Kiem tra lan cuoi: %s",
+                "Danh sach workflow cua nhan vat hien tai da rong -> chuyen nhan vat/account. Kiem tra lan cuoi: %s",
                 remaining_workflows,
             )
             transition = _handle_queue_full(device, current_character)
@@ -1514,20 +1451,17 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
             if transition == "retry":
                 switch_account_fail_streak += 1
                 log.warning(
-                    "Chuyen nhan vat/account retry lien tiep %d. Tiep tuc vong lap (khong dung bot)...",
+                    "Chuyen nhan vat/account retry lien tiep %d/5. Giu nguyen danh sach rong de thu lai buoc chuyen...",
                     switch_account_fail_streak,
                 )
-                # Neu _handle_queue_full da tu kill+restart (nhan vat fail 5 lan),
-                # streak co the tang cao -> reset sau nguong 5 de tranh main loop
-                # trigger them 1 lan kill+restart nua (da xu ly ben trong roi).
                 if switch_account_fail_streak > 5:
                     log.warning(
-                        "Streak chuyen acc/nhan vat > 5 lan -> kill app, mo lai game de phuc hoi.",
+                        "Chuyen nhan vat/account fail qua 5 lan -> kill app, mo lai game, roi tiep tuc retry buoc chuyen.",
                     )
                     try:
                         device.shutdown()
                     except Exception:
-                        log.exception("Kill app sau switch fail qua 5 lan")
+                        log.exception("Kill app sau switch fail qua 5 lan that bai")
                     pause(3.0)
                     try:
                         device.start_game()
@@ -1536,7 +1470,7 @@ def _run_body_inner(device: Device, max_iterations: int | None = None) -> None:
                         _handle_logo_18_check(device)
                         _prepare_world_only(device)
                     except Exception:
-                        log.exception("Mo lai game sau switch fail qua 5 lan")
+                        log.exception("Mo lai game sau switch fail qua 5 lan that bai")
                     switch_account_fail_streak = 0
                 continue
             switch_account_fail_streak = 0
@@ -1933,7 +1867,7 @@ def main(argv: list[str] | None = None) -> int:
         "--resource",
         choices=list(config._RESOURCE_TAB_X_PCT.keys())
         + [
-            "cycle_random", "cycle_1", "cycle_2", "cycle_3", "cycle_4", "cycle_5",
+            "cycle_random", "cycle_1", "cycle_2", "cycle_3",
             "ngo", "food", "crop",
         ],
         default=config.RESOURCE_TAB,

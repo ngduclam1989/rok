@@ -249,20 +249,21 @@ lam1999 char 1 -> lam1999 char 2
 
 XONG:
 tu account cuoi -> quay lai lam6
--> force-stop com.rok.gp.vn -> B6 ngu theo cycle_wait_min +/- cycle_wait_variance_min
+-> giu nguyen game/tool dang mo -> B6 ngu theo cycle_wait_min +/- cycle_wait_variance_min
 ```
 
 Sau khi account cuoi chay xong ca `farm` va `chores`, bot wrap ve account dau
-tien trong `account.txt` la `lam6`, cho game load on dinh roi tat app. B6 khong
-doc timer Doi Quan nua; bot chi ngu theo `cycle_wait_min +/- cycle_wait_variance_min`
-trong `devices.yaml` roi tu dong bat lai chu trinh moi. Vi du `cycle_wait_min: 60` va
-`cycle_wait_variance_min: 10` thi moi vong se ngu ngau nhien 50-70 phut.
+tien trong `account.txt` la `lam6`, cho game load on dinh roi giu nguyen
+game/tool dang mo. B6 khong doc timer Doi Quan nua; bot chi ngu theo
+`cycle_wait_min +/- cycle_wait_variance_min` trong `devices.yaml` roi tu dong
+bat lai chu trinh moi. Vi du `cycle_wait_min: 60` va `cycle_wait_variance_min: 10`
+thi moi vong se ngu ngau nhien 50-70 phut.
 
 Khi switch account tra ve:
 
 - `switched`: account tiep theo thanh cong, quay lai `char 1`.
 - `wrapped`: da het account, bot quay ve account dau tien trong `account.txt`
-  (`lam6`), cho game load on dinh, roi goi `device.shutdown()`.
+  (`lam6`), cho game load on dinh, roi giu nguyen game/tool de cho B6.
 
 Neu switch nhan vat (char 1 -> char 2) loi:
 
@@ -287,11 +288,13 @@ adb -s SERIAL shell am force-stop com.rok.gp.vn
 
 ## Ket thuc bot va tat app
 
-Co 2 duong tat app game:
+Mac dinh, khi het danh sach account va `cycle_wait_min > 0`, bot khong tat app
+game va khong dong cua so scrcpy/tool; no giu nguyen de cho B6 va chay lai luot
+moi.
 
-1. Het danh sach account/da quay ve account dau tien: runtime goi
-   `device.shutdown()`.
-2. `cycle_wait_min: 0`: sau khi `bot_engine.run()` ket thuc, CLI `bot` va
+Duong tat app game:
+
+1. `cycle_wait_min: 0`: sau khi `bot_engine.run()` ket thuc, CLI `bot` va
    `fleet --sequential` goi `device.shutdown()` truoc khi thoat.
 
 Lenh nay chi tat app game `com.rok.gp.vn`; khong tat may, khong tat gia lap.

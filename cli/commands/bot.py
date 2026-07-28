@@ -60,6 +60,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
     install_pause_hotkey()
 
     only_claim_vip = getattr(args, "only_claim_vip", False)
+    device: Device | None = None
 
     while not should_stop():
         try:
@@ -175,21 +176,40 @@ def cmd_bot(args: argparse.Namespace) -> int:
         )
 
         bot_engine.config.ENABLE_INPUT_LOCK = False
-        device = Device(
-            serial,
-            TEMPLATES_DIR,
-            control_mode=control_mode,
-            scrcpy_window_path=scrcpy_window_path,
-        )
+        if device is None:
+            device = Device(
+                serial,
+                TEMPLATES_DIR,
+                control_mode=control_mode,
+                scrcpy_window_path=scrcpy_window_path,
+            )
+        else:
+            logging.info("B1: Tai su dung thiet bi/tool dang mo cho luot bot moi.")
+
+        run_failed = False
         try:
             bot_engine.run(device, max_iterations=args.max_iter)
+        except Exception:
+            run_failed = True
+            raise
         finally:
-            if getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120) == 0:
+            cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
+            keep_open_for_wait = (
+                cycle_wait != 0
+                and not only_claim_vip
+                and not should_stop()
+                and not run_failed
+            )
+            if cycle_wait == 0:
                 logging.info("B5: CYCLE_WAIT_MIN = 0 -> force-stop game before exiting bot.")
                 device.shutdown()
+                device = None
+            elif keep_open_for_wait:
+                logging.info("B5: Bot tam dung cho luot moi -> giu nguyen game/tool dang mo.")
             else:
                 device.close()
-            if is_bluestacks:
+                device = None
+            if is_bluestacks and not keep_open_for_wait:
                 if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):
                     logging.info("B5: Kết thúc bot. Tiến hành tắt Bluestacks...")
                     from core.bot.bluestack import stop_bluestack

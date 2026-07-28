@@ -1087,7 +1087,7 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
 
     if account_result == "wrapped":
         log.info(
-            "Da chay xong toan bo account va quay ve account dau danh sach. Dong app; B6 se cho theo cycle_wait_min +/- cycle_wait_variance_min."
+            "Da chay xong toan bo account va quay ve account dau danh sach. Giu nguyen game/tool; B6 se cho theo cycle_wait_min +/- cycle_wait_variance_min."
         )
         ensure_first = "failed"
         try:
@@ -1114,10 +1114,6 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
             )
             pause(wait_retry)
             return "retry"
-        try:
-            device.shutdown()
-        except Exception:
-            log.exception("Dong app sau khi wrap ve account dau that bai")
         return "stop"
     if account_result != "switched":
         wait_retry = random.uniform(20.0, 35.0)

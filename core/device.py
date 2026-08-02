@@ -109,6 +109,16 @@ class Device:
             )
             return
 
+        window_title = f"RoK Bot - {self.serial}"
+        existing_pid = self._find_existing_scrcpy_window(scrcpy_path, window_title)
+        if existing_pid is not None:
+            log.info(
+                "[%s] Cua so scrcpy/tool da mo san (pid=%s), khong mo them.",
+                self.serial,
+                existing_pid,
+            )
+            return
+
         cmd = [
             str(scrcpy_path),
             "--serial",
@@ -117,7 +127,7 @@ class Device:
             "--max-fps",
             "15",
             "--window-title",
-            f"RoK Bot - {self.serial}",
+            window_title,
         ]
         creationflags = 0
         if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
@@ -173,6 +183,68 @@ class Device:
                 scrcpy_path,
                 e,
             )
+
+    def _find_existing_scrcpy_window(
+        self,
+        scrcpy_path: Path,
+        window_title: str,
+    ) -> int | None:
+        """Return an existing scrcpy pid for this serial/title, if one exists."""
+        try:
+            import psutil
+        except Exception:
+            return None
+
+        expected_exe = str(scrcpy_path.resolve()).lower()
+        serial = str(self.serial).strip()
+        title = str(window_title).strip()
+        unscoped_scrcpy_pids: list[int] = []
+        for proc in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+            try:
+                name = str(proc.info.get("name") or "").lower()
+                exe = str(proc.info.get("exe") or "").lower()
+                cmdline = [str(part) for part in (proc.info.get("cmdline") or [])]
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+            is_scrcpy = name == "scrcpy.exe" or exe == expected_exe
+            if not is_scrcpy:
+                continue
+
+            cmd_text = "\n".join(cmdline)
+            if serial and serial in cmd_text:
+                return int(proc.info["pid"])
+            if title and title in cmd_text:
+                return int(proc.info["pid"])
+            if not any(part in cmdline for part in ("--serial", "-s")):
+                unscoped_scrcpy_pids.append(int(proc.info["pid"]))
+
+        if (
+            len(unscoped_scrcpy_pids) == 1
+            and self._only_this_adb_device_connected()
+        ):
+            return unscoped_scrcpy_pids[0]
+
+        return None
+
+    def _only_this_adb_device_connected(self) -> bool:
+        try:
+            result = subprocess.run(
+                [self._adb_path, "devices"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except Exception:
+            return False
+
+        online = []
+        for line in result.stdout.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "device":
+                online.append(parts[0])
+        return online == [self.serial]
 
     def _start_scrcpy_client(self) -> None:
         """Start scrcpy video/control sockets for low-latency capture and input."""

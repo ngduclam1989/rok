@@ -73,5 +73,4 @@ RoKBot.exe
 .scratch/
 .logs/
 
-# Local scrcpy runtime copied for this machine
-tools/scrcpy/
+

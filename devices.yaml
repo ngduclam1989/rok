@@ -14,13 +14,15 @@
 
 # Cấu hình mặc định, áp cho mọi máy không override trong block 'bot:'.
 defaults:
-  # resource: wood           # barb / corn / wood / stone / gold / cycle_random / cycle_1 / cycle_2 / cycle_3 / cycle_4 / cycle_5
-  resource: cycle_random   # Random 1 trong 5 kịch bản farm cycle
+  # resource: wood           # barb / corn / wood / stone / gold / cycle_random / cycle_1 / cycle_2 / cycle_3
+  resource: cycle_random   # Random 1 trong 3 kịch bản farm cycle
   target_level: 5
   max_slots: 5
   skip_level_adjust: true
   turn_wait_min: 60
-  control_mode: scrcpy    # scrcpy (máy thật/ADB nhanh), adb hoặc physical_mouse (Bluestacks)
+  control_mode: scrcpy       # scrcpy (máy thật/ADB nhanh), adb hoặc physical_mouse (Bluestacks)
+  open_scrcpy_window: true
+  scrcpy_path: "tools\\scrcpy"
   save_debug_images: false             # Tự động chụp và vẽ đường đi của chuột hoặc điểm bấm (chỉ bật khi debug, mặc định tắt)
   enable_vip_claim: true               # Bật/tắt nhận VIP tự động xen kẽ khi chạy farm (chọn ngẫu nhiên thứ tự chạy trước/sau khi farm)
   auto_close_bluestack: false          # Tự động tắt máy ảo Bluestacks sau khi chạy xong bot (mặc định tắt)
@@ -37,8 +39,7 @@ defaults:
   # Cấu hình thời gian chờ:
   delay_after_popup_min: 0     # Thời gian chờ tối thiểu sau khi tắt popup (giây)
   delay_after_popup_max: 3    # Thời gian chờ tối đa sau khi tắt popup (giây)
-  delay_after_dispatch_min: 1 # Thời gian chờ tối thiểu sau khi gửi quân (giây)ls
-
+  delay_after_dispatch_min: 1 # Thời gian chờ tối thiểu sau khi gửi quân (giây)
   delay_after_dispatch_max: 10 # Thời gian chờ tối đa sau khi gửi quân (giây)
   enable_city_world_toggle: true         # Bật/tắt cơ chế vào city rồi lại về world sau khi gửi quân (tránh bám đuôi camera)
   city_world_toggle_probability: 0.2    # Xác suất thực hiện cơ chế vào city rồi về world (0.0 đến 1.0)

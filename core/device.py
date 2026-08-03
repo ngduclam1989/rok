@@ -858,6 +858,17 @@ class Device:
         from core.store import restart_game_app
         restart_game_app(self)
 
+    def open_app(self) -> None:
+        """Mở/khởi chạy ứng dụng game com.rok.gp.vn."""
+        from core.store.app_manager import open_game_app
+        open_game_app(self)
+
+    def close_app(self) -> None:
+        """Đóng/tắt ứng dụng game com.rok.gp.vn qua ADB."""
+        from core.store.app_manager import close_game_app
+        close_game_app(self)
+
+
     def is_game_running(self) -> bool:
         """Kiểm tra xem ứng dụng game Rise of Kingdoms (com.rok.gp.vn) có đang chạy hay không."""
         try:

@@ -38,3 +38,21 @@ def restart_game_app(device: Any) -> None:
         pause(15.0)
     except Exception as e:
         log.error("Không thể khởi động lại game %s: %s", GAME_PACKAGE_NAME, e)
+
+
+def open_game_app(device: Any) -> None:
+    """Tự động mở/khởi chạy ứng dụng game (com.rok.gp.vn) qua ADB."""
+    restart_game_app(device)
+
+
+def close_game_app(device: Any) -> None:
+    """Tắt/đóng ứng dụng game (com.rok.gp.vn) sạch sẽ qua ADB."""
+    from core.bot.signals import pause
+    log.info("[%s] Đang thực hiện đóng ứng dụng game (%s)...", device.serial, GAME_PACKAGE_NAME)
+    try:
+        device._adb_shell("am", "force-stop", GAME_PACKAGE_NAME)
+        log.info("[%s] Đã đóng thành công ứng dụng game %s", device.serial, GAME_PACKAGE_NAME)
+        pause(1.0)
+    except Exception as e:
+        log.error("[%s] Không thể đóng ứng dụng game %s: %s", device.serial, GAME_PACKAGE_NAME, e)
+

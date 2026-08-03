@@ -193,23 +193,13 @@ def cmd_bot(args: argparse.Namespace) -> int:
             run_failed = True
             raise
         finally:
-            cycle_wait = getattr(bot_engine.config, "CYCLE_WAIT_MIN", 120)
-            keep_open_for_wait = (
-                cycle_wait != 0
-                and not only_claim_vip
-                and not should_stop()
-                and not run_failed
-            )
-            if cycle_wait == 0:
-                logging.info("B5: CYCLE_WAIT_MIN = 0 -> force-stop game before exiting bot.")
-                device.shutdown()
-                device = None
-            elif keep_open_for_wait:
-                logging.info("B5: Bot tam dung cho luot moi -> giu nguyen game/tool dang mo.")
-            else:
+            if device is not None:
+                logging.info("B5: Hết quy trình -> gọi hàm đóng ứng dụng game (close_app)...")
+                device.close_app()
                 device.close()
                 device = None
-            if is_bluestacks and not keep_open_for_wait:
+
+            if is_bluestacks:
                 if getattr(bot_engine.config, "AUTO_CLOSE_BLUESTACK", False):
                     logging.info("B5: Kết thúc bot. Tiến hành tắt Bluestacks...")
                     from core.bot.bluestack import stop_bluestack
@@ -217,6 +207,7 @@ def cmd_bot(args: argparse.Namespace) -> int:
                 else:
                     logging.info("B5: Kết thúc bot. Giữ nguyên trạng thái Bluestacks (không tắt).")
                 pause(5.0)
+
 
         if only_claim_vip or should_stop():
             break

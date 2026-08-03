@@ -29,8 +29,8 @@ defaults:
   alliance_tech_probability: 1.0       # Việc vặt bắt buộc chạy
   
   # Cấu hình chu kỳ chờ chạy lại bot (B6):
-  cycle_wait_min: 65                # Thời gian chờ cơ bản giữa các lượt chạy (phút)
-  cycle_wait_variance_min: 10          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
+  cycle_wait_min: 30               # Thời gian chờ cơ bản giữa các lượt chạy (phút)
+  cycle_wait_variance_min: 15          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
 
 
 

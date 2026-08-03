@@ -1062,7 +1062,6 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
         log.info("Chuyển nhân vật thành công! Bắt đầu quét logo 18+ ngay sau 5s (logo xuất hiện trong lúc load)...")
         pause(5.0)
         _handle_logo_18_check(device)
-        # Sau khi 18+ check xong, nếu vẫn chưa đủ 15s thì chờ thêm cho game ổn định
         log.info("Chờ thêm 10s cho game load nhân vật mới hoàn tất...")
         pause(10.0)
         config.CYCLE_RESOURCES = None
@@ -1087,7 +1086,7 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
 
     if account_result == "wrapped":
         log.info(
-            "Da chay xong toan bo account va quay ve account dau danh sach. Giu nguyen game/tool; B6 se cho theo cycle_wait_min +/- cycle_wait_variance_min."
+            "Đã chạy xong toàn bộ account và quay về account đầu danh sách. Hết quy trình -> Tiến hành đóng ứng dụng game..."
         )
         ensure_first = "failed"
         try:
@@ -1114,7 +1113,15 @@ def _handle_queue_full(device: Device, current_character: int) -> str:
             )
             pause(wait_retry)
             return "retry"
+        
+        log.info("Đã về account đầu tiên thành công. Gọi hàm đóng app (device.close_app())...")
+        try:
+            device.close_app()
+        except Exception as e:
+            log.error("Lỗi khi gọi close_app: %s", e)
+
         return "stop"
+
     if account_result != "switched":
         wait_retry = random.uniform(20.0, 35.0)
         log.warning(

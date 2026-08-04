@@ -183,7 +183,8 @@ def _has_tile_info_popup(screen: np.ndarray) -> bool:
             b, g, r = screen[y, x]
             if int(r) + int(g) + int(b) > 600:
                 light_count += 1
-    return light_count >= 4
+    return light_count >= 8
+
 
 
 def is_network_popup(screen: np.ndarray) -> bool:

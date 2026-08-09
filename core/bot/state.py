@@ -20,7 +20,12 @@ class S(Enum):
     CITY = "city"
     NETWORK_ERROR = "network_error"  # popup "Mạng không ổn định"
     GEMS_SHOP = "gems_shop"          # cửa hàng đá quý / nạp tiền
+    ALLIANCE_PANEL = "alliance_panel"# bảng màn hình liên minh
+    PRE_KVK = "pre_kvk"              # sự kiện Đêm Giao Thừa Của Cuộc Thập Tự Chinh
+    TROOPS_PANEL = "troops_panel"
     UNKNOWN = "unknown"
+
+
 
 
 @dataclass

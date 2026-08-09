@@ -24,7 +24,12 @@ from .detection import detect_state, is_lock_screen
 from .geometry import pct_to_px, region_pct_to_px, tap_template, ocr_text_in
 from .handlers import (
     check_and_handle_network_popup,
+    handle_alliance_panel,
+    handle_pre_kvk,
+    handle_troops_panel,
     handle_build_menu,
+
+
     handle_city,
     handle_exit_dialog,
     handle_lock_screen,
@@ -41,6 +46,7 @@ from .handlers import (
     handle_switch_to_first_account,
     reset_slider_state,
 )
+
 from .readers import read_slot_badge
 from .signals import (
     install_signal_handler,
@@ -784,7 +790,13 @@ def _prepare_world_only(device: Device) -> None:
             handle_exit_dialog(device, screen)
         elif state == S.GEMS_SHOP:
             handle_gems_shop(device, screen)
+        elif state == S.ALLIANCE_PANEL:
+            handle_alliance_panel(device, screen)
+        elif state == S.PRE_KVK:
+            handle_pre_kvk(device, screen)
         elif state == S.SEARCH_PANEL:
+
+
             handle_search_panel(device, screen)
         elif state == S.TILE_INFO:
             handle_tile_info(device, screen)
@@ -869,8 +881,11 @@ def _initial_navigate_to_world(device: Device) -> None:
         # handler riêng của state đó tiếp quản.
         if state in (
             S.SEARCH_PANEL, S.TILE_INFO, S.MARCH_PLAN,
-            S.POPUP, S.BUILD_MENU, S.EXIT_DIALOG, S.GEMS_SHOP,
+            S.POPUP, S.BUILD_MENU, S.EXIT_DIALOG, S.GEMS_SHOP, S.ALLIANCE_PANEL, S.PRE_KVK, S.TROOPS_PANEL,
         ):
+
+
+
             log.info(
                 "Đang ở %s -> main loop sẽ tự xử lý, "
                 "bỏ qua initial nav",
@@ -994,7 +1009,10 @@ def _return_to_world(device: Device, max_attempts: int = 6) -> None:
             if pos is None:
                 x, y = pct_to_px(screen, 6.0, 91.2)
                 device.tap(x, y)
-        elif state in (S.EXIT_DIALOG, S.POPUP, S.GEMS_SHOP, S.BUILD_MENU, S.SEARCH_PANEL, S.TILE_INFO, S.MARCH_PLAN):
+        elif state in (S.EXIT_DIALOG, S.POPUP, S.GEMS_SHOP, S.BUILD_MENU, S.SEARCH_PANEL, S.TILE_INFO, S.MARCH_PLAN, S.ALLIANCE_PANEL, S.PRE_KVK, S.TROOPS_PANEL):
+
+
+
             _dispatch_to_handler(device, screen, state, stuck_count=1)
         else:
             x, y = pct_to_px(screen, 97.0, 5.0)
@@ -1154,8 +1172,17 @@ def _dispatch_to_handler(
         return handle_popup(device, screen)
     if state == S.GEMS_SHOP:
         return handle_gems_shop(device, screen)
+    if state == S.ALLIANCE_PANEL:
+        return handle_alliance_panel(device, screen)
+    if state == S.PRE_KVK:
+        return handle_pre_kvk(device, screen)
+    if state == S.TROOPS_PANEL:
+        return handle_troops_panel(device, screen)
+
     if state == S.BUILD_MENU:
+
         return handle_build_menu(device, screen)
+
     if state == S.SEARCH_PANEL:
         return handle_search_panel(device, screen)
     if state == S.TILE_INFO:
@@ -1409,6 +1436,8 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     current_character = 1
     is_first_world_snapshot = True
     switch_account_fail_streak = 0
+    last_city_world_toggle_time = time.monotonic()
+
 
     # Read the n/N badge once on startup so we know the current queue
     # state (user may already have marches out) and the account's
@@ -1509,7 +1538,9 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
             is_first_world_snapshot = True
             reset_slider_state()
             device._back_locked_until = 0.0
+            last_city_world_toggle_time = time.monotonic()
             log.info("Bỏ khoá nút BACK đối với account/nhân vật mới.")
+
 
             # Đọc lại huy hiệu ban đầu cho nhân vật/account mới
             n0, mx0 = _read_initial_slot_badge_with_retries(device)
@@ -1775,6 +1806,20 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                     dispatched_count + 1, current_resource.upper()
                 )
 
+        # Tự động 10 phút chưa hoàn thành gửi đủ quân farm -> kích hoạt City -> World
+        if current_wf == "farm" and (time.monotonic() - last_city_world_toggle_time >= 600.0):
+            log.info(
+                "🔹 Quá 10 phút (%.0fs) chưa hoàn thành gửi đủ quân farm (%d/%d) -> "
+                "Tự động kích hoạt cơ chế City -> World làm mới bản đồ & camera...",
+                time.monotonic() - last_city_world_toggle_time,
+                dispatched_count, config.MAX_SLOTS,
+            )
+            _go_home_then_world(device)
+            last_city_world_toggle_time = time.monotonic()
+            last_state = None
+            stuck_count = 0
+            continue
+
         try:
             result = _dispatch_to_handler(
                 device, screen, state, stuck_count,
@@ -1830,10 +1875,12 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 if rand_val < prob:
                     log.info("Cơ chế City-World được kích hoạt ngẫu nhiên (%.2f < %.2f)", rand_val, prob)
                     _go_home_then_world(device)
+                    last_city_world_toggle_time = time.monotonic()
                 else:
                     log.info("Bỏ qua cơ chế City-World lần này (%.2f >= %.2f)", rand_val, prob)
             else:
                 log.info("Cơ chế City-World đã bị tắt trong cấu hình.")
+
             wait_sec = random.randint(config.DELAY_AFTER_DISPATCH_MIN, config.DELAY_AFTER_DISPATCH_MAX)
             log.info("Sau khi gửi quân, chờ %d giây trước chu kỳ tiếp theo...", wait_sec)
             pause(float(wait_sec))

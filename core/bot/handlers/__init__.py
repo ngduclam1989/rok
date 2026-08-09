@@ -17,7 +17,7 @@ from .navigation import (
     reset_account_run_tracking,
 )
 from .network import check_and_handle_network_popup, handle_network_error
-from .popups import handle_build_menu, handle_exit_dialog, handle_popup, handle_gems_shop
+from .popups import handle_build_menu, handle_exit_dialog, handle_popup, handle_gems_shop, handle_alliance_panel, handle_pre_kvk, handle_troops_panel
 from .search_panel import handle_search_panel
 from .tile_info import handle_tile_info
 from .unknown import handle_unknown
@@ -31,7 +31,13 @@ def reset_slider_state() -> None:
 
 __all__ = [
     "check_and_handle_network_popup",
+    "handle_alliance_panel",
+    "handle_pre_kvk",
+    "handle_troops_panel",
     "handle_build_menu",
+
+
+
     "handle_city",
     "handle_exit_dialog",
     "handle_lock_screen",

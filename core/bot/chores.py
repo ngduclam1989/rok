@@ -26,7 +26,9 @@ import re
 import time
 from datetime import datetime, timedelta
 
+import cv2
 import numpy as np
+
 
 from core import ocr, vision
 from core.device import Device
@@ -226,39 +228,43 @@ def _wake_and_unlock(device: Device):
     return screen
 
 
-def _close_to_world(device: Device, max_back: int = 5) -> bool:
-    """Đóng panel về world bằng BACK + nhận diện popup 'Thoát' (OCR vùng
-    NHỎ, nhanh) rồi huỷ.
+def _close_to_world(device: Device, max_back: int = 4) -> bool:
+    """Đóng panel về world bằng nút X đóng hoặc chạm vùng trống an toàn.
 
-    KHÔNG dùng detect_state: full-image OCR trên máy này quá chậm
-    (13-76s/lần). Logic: BACK từng nấc; khi BACK lố qua world thì game
-    bung popup 'Thoát trò chơi?' -> bắt được popup -> chạm HUỶ -> đang ở
-    world -> xong. Chỉ OCR 1 vùng nhỏ quanh nút popup mỗi nấc.
+    KHÔNG dùng device.key("BACK") để tránh gây ra popup 'Thoát trò chơi?' (exit_dialog).
     """
-    for _ in range(max_back):
-        try:
-            device.key("BACK")
-        except Exception:
-            pass
-        pause(1.4)
+    for attempt in range(max_back):
         try:
             screen = device.snapshot()
         except Exception:
             continue
         ocr.clear_cache()
-        # Popup "Thoát trò chơi?": tiêu đề ở ~y46%, nút XÁC NHẬN/HỦY ở
-        # ~y66%. OCR hay rớt nguyên âm ("HỦY"->"HY") nên KHÔNG bắt theo
-        # "HUY"; bắt theo "thoat tro" (tiêu đề) + "xac nh" (XÁC NHẬN).
-        if ocr_text_in(
-            screen, (18, 38, 84, 74),
-            ("thoat tro", "thoat ung", "xac nh"),
-            threshold=0.5,
-        ):
-            log.info("[việc vặt] gặp popup Thoát -> chạm HUỶ về world")
-            handle_exit_dialog(device, screen)
-            pause(1.5)
+        state = detect_state(device, screen)
+        if state in (S.WORLD, S.CITY):
+            log.info("[việc vặt] Đã về %s thành công", state.value)
             return True
-    log.info("[việc vặt] đóng panel xong (không gặp popup Thoát)")
+
+        # Tắt bằng nút X đóng góc trên-phải (panel Liên Minh 90.6%, 5.5% hoặc popup chung 96.5%, 5.5%)
+        log.info("[việc vặt] Đóng panel (lần %d): chạm nút X đóng...", attempt + 1)
+        if state == S.ALLIANCE_PANEL:
+            x, y = pct_to_px(screen, 90.6, 5.5)
+        else:
+            x, y = pct_to_px(screen, 96.5, 5.5)
+        device.tap(x, y)
+        pause(1.2)
+
+        try:
+            screen = device.snapshot()
+            if detect_state(device, screen) in (S.WORLD, S.CITY):
+                return True
+        except Exception:
+            pass
+
+        # Fallback: chạm vùng trống an toàn góc trên-trái (15%, 25%)
+        safe_x, safe_y = pct_to_px(screen, 15.0, 25.0)
+        device.tap(safe_x, safe_y)
+        pause(1.0)
+
     return False
 
 
@@ -1214,6 +1220,116 @@ def collect_city_resources(device: Device, max_resources: int = 4) -> bool:
     return True
 
 
+def _find_yellow_return_button(screen: np.ndarray) -> tuple[int, int] | None:
+    """Tự động phát hiện vị trí thực tế của Nút Lục Giác Mũi Tên Cong Màu Vàng (Về thành)."""
+    h, w = screen.shape[:2]
+    # Quét khu vực dưới dải vòng chọn đạo quân ở giữa màn hình (y: 52% -> 78%, x: 40% -> 68%)
+    search_crop = screen[int(h * 0.52):int(h * 0.78), int(w * 0.40):int(w * 0.68)]
+    hsv = cv2.cvtColor(search_crop, cv2.COLOR_BGR2HSV)
+    lower_orange = np.array([12, 140, 160])
+    upper_orange = np.array([28, 255, 255])
+    mask = cv2.inRange(hsv, lower_orange, upper_orange)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best_pos = None
+    max_area = 0
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area > max_area and 100 <= area <= 5000:
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            cx = int(w * 0.40) + x + bw // 2
+            cy = int(h * 0.52) + y + bh // 2
+            best_pos = (cx, cy)
+            max_area = area
+
+    if best_pos is None:
+        best_pos = (int(w * 0.56), int(h * 0.64))
+    return best_pos
+
+
+
+def recall_encamped_marches(device: Device) -> int:
+    """Tự động phát hiện đạo quân cắm trại (Icon Túp Lều), chờ 1s, rồi ấn Nút Mũi Tên Màu Vàng.
+
+    Luồng chuẩn:
+      1. Đảm bảo dải hàng chờ mở rộng (tap góc trên-phải 95%, 22%).
+      2. Quét 5 ô đạo quân tìm template `march_tent_icon.png`.
+      3. Với mỗi đạo quân có Icon Túp Lều:
+         - Tap chọn đạo quân tại (85% w, card_cy).
+         - Chờ đúng 1.0s cho bảng thông tin & nút mũi tên màu vàng xuất hiện.
+         - Quét phát hiện Nút Mũi Tên Màu Vàng -> Tap trực tiếp nút đó để gọi về thành.
+    """
+    log.info("[việc vặt] Kiểm tra & gọi các đạo quân cắm trại (Túp Lều) về thành")
+    try:
+        screen = device.snapshot()
+    except Exception:
+        return 0
+
+    h, w = screen.shape[:2]
+    # Tap mở/đảm bảo dải hàng chờ mở rộng
+    x_badge, y_badge = pct_to_px(screen, 95.0, 22.0)
+    device.tap(x_badge, y_badge)
+    time.sleep(1.0)
+
+    try:
+        screen = device.snapshot()
+    except Exception:
+        return 0
+
+    march_area = screen[int(h * 0.20):int(h * 0.85), int(w * 0.75):w]
+    mh, mw = march_area.shape[:2]
+    card_h = mh // 5
+
+    template = None
+    tpl_path = TEMPLATES_DIR / "march_tent_icon.png"
+    if tpl_path.exists():
+        template = cv2.imread(str(tpl_path))
+
+    if template is None:
+        log.warning("[việc vặt] Không tìm thấy template march_tent_icon.png")
+        return 0
+
+    recalled_count = 0
+    for i in range(5):
+        card_crop = march_area[i * card_h : (i + 1) * card_h, :]
+        try:
+            res = cv2.matchTemplate(card_crop, template, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        except Exception:
+            continue
+
+        if max_val >= 0.70:
+            card_cy = int(h * 0.20) + (i * card_h) + (card_h // 2)
+            card_cx = int(w * 0.85)
+            log.info("[việc vặt] Đạo %d: Thấy Icon Túp Lều (Conf %.2f) -> tap chọn đạo quân tại (%d, %d)", i + 1, max_val, card_cx, card_cy)
+            device.tap(card_cx, card_cy)
+
+            # Chờ đúng 1.0s cho nút mũi tên màu vàng xuất hiện trên màn hình
+            time.sleep(1.0)
+
+            try:
+                post_screen = device.snapshot()
+            except Exception:
+                continue
+
+            yellow_pos = _find_yellow_return_button(post_screen)
+            if yellow_pos:
+                log.info("[việc vặt] Thấy Nút Mũi Tên Màu Vàng tại (%d, %d) -> ấn luôn!", yellow_pos[0], yellow_pos[1])
+                device.tap(yellow_pos[0], yellow_pos[1])
+                recalled_count += 1
+                time.sleep(1.5)
+
+            try:
+                screen = device.snapshot()
+                march_area = screen[int(h * 0.20):int(h * 0.85), int(w * 0.75):w]
+            except Exception:
+                break
+
+    log.info("[việc vặt] Đã gọi tổng cộng %d đạo quân cắm trại về thành", recalled_count)
+    return recalled_count
+
+
+
 __all__ = [
     "chore_aware_sleep",
     "collect_city_resources",
@@ -1221,5 +1337,7 @@ __all__ = [
     "do_alliance_help",
     "do_alliance_tech",
     "do_alliance_territory",
+    "recall_encamped_marches",
     "run_random_chore",
 ]
+

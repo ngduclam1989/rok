@@ -26,12 +26,12 @@ defaults:
   save_debug_images: false             # Tự động chụp và vẽ đường đi của chuột hoặc điểm bấm (chỉ bật khi debug, mặc định tắt)
   enable_vip_claim: true               # Bật/tắt nhận VIP tự động xen kẽ khi chạy farm (chọn ngẫu nhiên thứ tự chạy trước/sau khi farm)
   auto_close_bluestack: false          # Tự động tắt máy ảo Bluestacks sau khi chạy xong bot (mặc định tắt)
-  alliance_gifts_probability: 1.0    # Việc vặt bắt buộc chạy
-  alliance_territory_probability: 1.0  # Việc vặt bắt buộc chạy
-  alliance_tech_probability: 1.0       # Việc vặt bắt buộc chạy
+  alliance_gifts_probability: 0.5    # Việc vặt bắt buộc chạy
+  alliance_territory_probability: 0.5  # Việc vặt bắt buộc chạy
+  alliance_tech_probability: 0.5       # Việc vặt bắt buộc chạy
   
   # Cấu hình chu kỳ chờ chạy lại bot (B6):
-  cycle_wait_min: 30               # Thời gian chờ cơ bản giữa các lượt chạy (phút)
+  cycle_wait_min: 80            # Thời gian chờ cơ bản giữa các lượt chạy (phút)
   cycle_wait_variance_min: 15          # Độ lệch thời gian chờ ngẫu nhiên (+/- phút)
 
 

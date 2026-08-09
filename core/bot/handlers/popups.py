@@ -51,3 +51,27 @@ def handle_gems_shop(device: Device, screen: np.ndarray) -> StepResult:
         x, y = pct_to_px(screen, 5.0, 5.0)
         device.tap(x, y)
     return StepResult(True, "đã xử lý thoát màn hình nạp đá quý", sleep_after=1.5)
+
+
+def handle_alliance_panel(device: Device, screen: np.ndarray) -> StepResult:
+    log.info("Phát hiện màn hình Bảng Liên Minh -> chạm X góc trên-phải để thoát về world")
+    x, y = pct_to_px(screen, 90.6, 5.5)
+    device.tap(x, y)
+    return StepResult(True, "đã đóng bảng Liên Minh", sleep_after=1.5)
+
+
+def handle_pre_kvk(device: Device, screen: np.ndarray) -> StepResult:
+    log.info("Phát hiện màn hình sự kiện Pre-KVK (Đêm Giao Thừa Của Cuộc Thập Tự Chinh) -> chạm X góc trên-phải để thoát về world")
+    x, y = pct_to_px(screen, 90.6, 12.0)
+    device.tap(x, y)
+    return StepResult(True, "đã đóng màn hình Pre-KVK", sleep_after=1.5)
+
+
+def handle_troops_panel(device: Device, screen: np.ndarray) -> StepResult:
+    log.info("Phát hiện màn hình Bảng Đạo Quân -> chạm X góc trên-phải để thoát về world")
+    x, y = pct_to_px(screen, 90.6, 5.5)
+    device.tap(x, y)
+    return StepResult(True, "đã đóng bảng Đạo Quân", sleep_after=1.5)
+
+
+

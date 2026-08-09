@@ -209,6 +209,103 @@ def is_gems_shop(screen: np.ndarray) -> bool:
     )
 
 
+def is_alliance_panel(screen: np.ndarray) -> bool:
+    """Xác định màn hình Bảng Liên Minh (S.ALLIANCE_PANEL).
+
+    Nhận diện kết hợp 3 tín hiệu:
+      1. Pixel xanh đặc trưng của icon Công Nghệ (beaker).
+      2. Tiêu đề "LIÊN MINH" ở vùng giữa trên cùng.
+      3. Hoặc chứa các nhãn cố định động: "thủ lĩnh", "lãnh thổ", "quà liên minh", "sức mạnh", "thành viên".
+    """
+    h, w = screen.shape[:2]
+    cx = int(w * 0.522)
+    cy = int(h * 0.868)
+    blue = 0
+    for dx in (-22, -8, 8, 22):
+        for dy in (-12, 0, 12):
+            x, y = cx + dx, cy + dy
+            if 0 <= x < w and 0 <= y < h:
+                b, g, r = screen[y, x]
+                if int(b) > 140 and int(r) < 140:
+                    blue += 1
+    if blue >= 5:
+        return True
+
+    has_title = ocr_text_in(
+        screen, (30.0, 0.0, 70.0, 15.0),
+        ("LIEN MINH", "Lien Minh", "LIÊN MINH"),
+        threshold=0.4,
+    )
+    if has_title:
+        return True
+
+    hits = ocr.find_all(screen)
+    matched_labels = 0
+    keywords = ("thu linh", "lanh tho", "qua lien minh", "suc manh", "thanh vien")
+    for hit in hits:
+        if hit.confidence < 0.3:
+            continue
+        norm = ocr.strip_diacritics(hit.text).lower()
+        if any(k in norm for k in keywords):
+            matched_labels += 1
+            if matched_labels >= 2:
+                return True
+    return False
+
+
+
+def is_pre_kvk(screen: np.ndarray) -> bool:
+    """Xác định màn hình sự kiện Pre-KVK (Đêm Giao Thừa Của Cuộc Thập Tự Chinh).
+
+    Nhận diện kết hợp tiêu đề & đa nhãn đặc trưng tự động chịu lỗi OCR rớt nguyên âm:
+      - "dem giao", "giao tha", "thp t chinh", "thap tu chinh"
+      - "dong quan", "cup boc", "tri thuy", "tri ha", "tri tho"
+    """
+    hits = ocr.find_all(screen)
+    matched_labels = 0
+    keywords = (
+        "dem giao", "thp t chinh", "thap tu chinh", "giao tha", "giao thua",
+        "dong quan", "cup boc", "tri thuy", "tri ha", "tri tho", "tri hoa",
+    )
+    for hit in hits:
+        if hit.confidence < 0.3:
+            continue
+        norm = ocr.strip_diacritics(hit.text).lower()
+        if any(k in norm for k in keywords):
+            matched_labels += 1
+            if matched_labels >= 2:
+                return True
+    return False
+
+
+def is_troops_panel(screen: np.ndarray) -> bool:
+    """Xác định màn hình Bảng Danh Sách Đạo Quân (Màn hình Đội Quân / Đạo Quân).
+
+    Tín hiệu nhận diện:
+      - Tiêu đề "Đại Quân", "Đội Quân", "Đi Quân" ở header.
+      - Các từ khóa nội dung: "chuyen dong quan", "cam tri va dang cho lanh", "don vi".
+    """
+    hits = ocr.find_all(screen)
+    keywords = (
+        "di quan", "doi quan", "dai quan", "chuyen dong quan", "chuyn dng qun",
+        "cam tri va dang cho lanh", "cm tri va dang", "qun ca bn da duc cm tri",
+    )
+    for hit in hits:
+        if hit.confidence < 0.3:
+            continue
+        norm = ocr.strip_diacritics(hit.text).lower()
+        if any(k in norm for k in keywords):
+            return True
+    return False
+
+
+
+
+
+
+
+
+
 def detect_state(device: Device, screen: np.ndarray) -> S:
     """Detect current game state. First-match-wins ordering."""
     # ---- Phase 0: lock screen (cheap brightness check) --------------
@@ -299,9 +396,24 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
     if is_gems_shop(screen):
         return S.GEMS_SHOP
 
+    # Bang Lien Minh (Alliance Panel)
+    if is_alliance_panel(screen):
+        return S.ALLIANCE_PANEL
+
+    # Man hinh su kien Pre-KVK
+    if is_pre_kvk(screen):
+        return S.PRE_KVK
+
+    # Bang Danh sach Dao Quan (Troops Panel)
+    if is_troops_panel(screen):
+        return S.TROOPS_PANEL
+
     modal_state = classify_modal_popup(screen, debug=True)
+
+
     if modal_state in (S.EXIT_DIALOG, S.NETWORK_ERROR):
         return modal_state
+
 
 
 

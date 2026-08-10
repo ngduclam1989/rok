@@ -54,10 +54,11 @@ def handle_gems_shop(device: Device, screen: np.ndarray) -> StepResult:
 
 
 def handle_alliance_panel(device: Device, screen: np.ndarray) -> StepResult:
-    log.info("Phát hiện màn hình Bảng Liên Minh -> chạm X góc trên-phải để thoát về world")
-    x, y = pct_to_px(screen, 90.6, 5.5)
+    log.info("Phát hiện màn hình Bảng Liên Minh -> chạm X góc trên-phải (96.5%%, 5.5%%) để thoát về world")
+    x, y = pct_to_px(screen, 96.5, 5.5)
     device.tap(x, y)
     return StepResult(True, "đã đóng bảng Liên Minh", sleep_after=1.5)
+
 
 
 def handle_pre_kvk(device: Device, screen: np.ndarray) -> StepResult:

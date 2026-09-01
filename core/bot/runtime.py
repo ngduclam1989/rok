@@ -404,6 +404,9 @@ def _claim_vip_only(device: Device) -> None:
     try:
         # 1. Đảm bảo ở màn hình CITY
         screen = device.snapshot()
+        if check_and_handle_network_popup(device, screen):
+            log.warning("Popup mạng khi bắt đầu nhận VIP -> bỏ qua")
+            return
         state = detect_state(device, screen)
         if state == S.WORLD:
             log.info("Đang ở WORLD -> bấm nút chuyển sang CITY")
@@ -456,6 +459,9 @@ def _claim_vip_only(device: Device) -> None:
 
         log.info("Kiểm tra nút nhận điểm VIP và rương VIP miễn phí hàng ngày...")
         screen = device.snapshot()
+        if screen is not None and check_and_handle_network_popup(device, screen):
+            log.warning("Popup mạng khi kiểm tra nút VIP -> bỏ qua")
+            return
         if screen is not None:
             vip_point_region_px = region_pct_to_px(screen, vip_point_region)
             vip_free_region_px = region_pct_to_px(screen, vip_free_region)
@@ -1202,8 +1208,8 @@ _CYCLE_FARM_SCENARIOS = {
     "1": "4 luot dau random du 4 loai; luot 5 random 1 trong 4 loai",
     "2": "2 luot dau gold; 3 luot sau gom du corn/stone/wood theo thu tu random",
     "3": "luot dau gold; 4 luot sau gom du 4 loai theo thu tu random",
-    # "4": "chay theo thu tu gold, stone, wood, corn, corn",
-    # "5": "luot dau corn; 4 luot sau gom du 4 loai theo thu tu random",
+    "4": "5 luot deu farm gold",
+    "5": "3 luot dau gold; luot 4 wood; luot 5 corn",
 }
 
 
@@ -1225,35 +1231,32 @@ def _build_cycle_farm_plan(scenario_id: str) -> tuple[list[str], list[str]]:
         random.shuffle(tail)
         plan.extend(tail)
         return plan, list(_CYCLE_FARM_RESOURCES)
-    # if scenario_id == "4":
-    #     return ["gold", "stone", "wood", "corn", "corn"], list(_CYCLE_FARM_RESOURCES)
-    # if scenario_id == "5":
-    #     plan = ["corn"]
-    #     tail = list(_CYCLE_FARM_RESOURCES)
-    #     random.shuffle(tail)
-    #     plan.extend(tail)
-    #     return plan, list(_CYCLE_FARM_RESOURCES)
+    if scenario_id == "4":
+        return ["gold", "gold", "gold", "gold", "gold"], ["gold"]
+    if scenario_id == "5":
+        return ["gold", "gold", "gold", "wood", "corn"], ["gold"]
     raise ValueError(f"Unknown cycle farm scenario: {scenario_id}")
 
 
 def _cycle_farm_resource_for_dispatch(dispatched_count: int) -> str:
     scenario = str(getattr(config, "FARM_SCENARIO", "random")).strip().lower()
-    if scenario not in {"random", "1", "2", "3"}:
+    if scenario not in {"random", "1", "2", "3", "4", "5"}:
         log.warning("farm_scenario=%r khong hop le -> dung random", scenario)
         scenario = "random"
 
     if not getattr(config, "CYCLE_SCENARIO_ID", None):
-        scenario_id = random.choice(["1", "2", "3"]) if scenario == "random" else scenario
+        scenario_id = random.choices(["1", "2", "3", "4", "5"], weights=[15, 25, 25, 20, 15])[0] if scenario == "random" else scenario
         plan, fallback_pool = _build_cycle_farm_plan(scenario_id)
         config.CYCLE_SCENARIO_ID = scenario_id
         config.CYCLE_RESOURCES = plan
         config.CYCLE_FALLBACK_RESOURCES = fallback_pool
         log.info(
-            "Chon kich ban farm cycle %s: %s. Ke hoach: %s",
+            "Chon kich ban farm cycle %s: %s. Ke hoach: %s (Trong so: 20%%/40%%/40%%)",
             scenario_id,
             _CYCLE_FARM_SCENARIOS[scenario_id],
             plan,
         )
+
 
     plan = list(getattr(config, "CYCLE_RESOURCES", None) or [])
     if dispatched_count < len(plan):
@@ -1933,9 +1936,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--farm-scenario",
-        choices=["random", "1", "2", "3"],
+        choices=["random", "1", "2", "3", "4", "5"],
         default=config.FARM_SCENARIO,
-        help="Cycle farm scenario: random, 1, 2, or 3.",
+        help="Cycle farm scenario: random, 1, 2, 3, 4, or 5.",
     )
     parser.add_argument(
         "--skip-level-adjust", action="store_true",

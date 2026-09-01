@@ -20,7 +20,7 @@ RESOURCE_TAB: str = "wood"
 """Which resource tab to select in the search panel."""
 
 FARM_SCENARIO: str = "random"
-"""Cycle farm scenario: random, 1, 2, or 3."""
+"""Cycle farm scenario: random, 1, 2, 3, 4, or 5."""
 
 SKIP_LEVEL_ADJUST: bool = False
 """When True, skip the OCR+slider step and trust whatever level the

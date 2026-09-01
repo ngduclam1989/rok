@@ -1208,7 +1208,7 @@ _CYCLE_FARM_SCENARIOS = {
     "1": "4 luot dau random du 4 loai; luot 5 random 1 trong 4 loai",
     "2": "2 luot dau gold; 3 luot sau gom du corn/stone/wood theo thu tu random",
     "3": "luot dau gold; 4 luot sau gom du 4 loai theo thu tu random",
-    "4": "5 luot deu farm gold",
+    "4": "4 luot dau gold; luot 5 random 1 trong 3 loai con lai (corn/stone/wood)",
     "5": "3 luot dau gold; luot 4 wood; luot 5 corn",
 }
 
@@ -1232,7 +1232,9 @@ def _build_cycle_farm_plan(scenario_id: str) -> tuple[list[str], list[str]]:
         plan.extend(tail)
         return plan, list(_CYCLE_FARM_RESOURCES)
     if scenario_id == "4":
-        return ["gold", "gold", "gold", "gold", "gold"], ["gold"]
+        plan = ["gold", "gold", "gold", "gold"]
+        plan.append(random.choice(_CYCLE_FARM_NO_GOLD))
+        return plan, list(_CYCLE_FARM_NO_GOLD)
     if scenario_id == "5":
         return ["gold", "gold", "gold", "wood", "corn"], ["gold"]
     raise ValueError(f"Unknown cycle farm scenario: {scenario_id}")

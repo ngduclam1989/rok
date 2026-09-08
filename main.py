@@ -108,7 +108,26 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
+# Patch Airtest ADB path to use tools/scrcpy/adb.exe (matching scrcpy version) and increase wait_for_device timeout
+try:
+    from pathlib import Path
+    from airtest.core.android.adb import ADB
+
+    scrcpy_adb = Path(__file__).resolve().parent / "tools" / "scrcpy" / "adb.exe"
+    if scrcpy_adb.exists():
+        adb_str = str(scrcpy_adb)
+        ADB.builtin_adb_path = staticmethod(lambda: adb_str)
+        ADB.get_adb_path = staticmethod(lambda: adb_str)
+
+    orig_wait = ADB.wait_for_device
+    def _patched_wait_for_device(self, timeout=15):
+        return orig_wait(self, timeout=timeout)
+    ADB.wait_for_device = _patched_wait_for_device
+except Exception:
+    pass
+
 from cli import run
 
 if __name__ == "__main__":
     sys.exit(run())
+

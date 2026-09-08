@@ -35,11 +35,12 @@ from core.device import Device
 
 from . import humanize
 from .capture import save_debug_image
-from .constants import TEMPLATES_DIR
+from .constants import TEMPLATES_DIR, ALLIANCE_PANEL_CLOSE_X
 from .detection import is_lock_screen, detect_state
 from .state import S
 from .geometry import ocr_text_in, pct_to_px, region_pct_to_px
-from .handlers import handle_exit_dialog, handle_lock_screen
+from .handlers import handle_exit_dialog, handle_lock_screen, handle_network_error
+from .handlers.network import check_and_handle_network_popup
 from .signals import pause
 
 log = logging.getLogger(__name__)
@@ -232,6 +233,7 @@ def _close_to_world(device: Device, max_back: int = 4) -> bool:
     """Đóng panel về world bằng nút X đóng hoặc chạm vùng trống an toàn.
 
     KHÔNG dùng device.key("BACK") để tránh gây ra popup 'Thoát trò chơi?' (exit_dialog).
+    Xử lý đúng NETWORK_ERROR và EXIT_DIALOG nếu gặp giữa chừng.
     """
     for attempt in range(max_back):
         try:
@@ -244,14 +246,29 @@ def _close_to_world(device: Device, max_back: int = 4) -> bool:
             log.info("[việc vặt] Đã về %s thành công", state.value)
             return True
 
-        # Tắt bằng nút X đóng góc trên-phải (panel Liên Minh 90.6%, 5.5% hoặc popup chung 96.5%, 5.5%)
+        # Xử lý popup mất mạng đúng cách thay vì tap X
+        if state == S.NETWORK_ERROR:
+            log.warning("[việc vặt] _close_to_world gặp popup mất mạng -> xử lý reconnect")
+            handle_network_error(device, screen)
+            pause(20.0)
+            continue
+
+        # Xử lý popup thoát game đúng cách
+        if state == S.EXIT_DIALOG:
+            log.warning("[việc vặt] _close_to_world gặp popup thoát game -> chạm HỦY")
+            handle_exit_dialog(device, screen)
+            pause(1.5)
+            continue
+
+        # Tắt bằng nút X đóng góc trên-phải (panel Liên Minh hoặc popup chung)
         log.info("[việc vặt] Đóng panel (lần %d): chạm nút X đóng...", attempt + 1)
         if state == S.ALLIANCE_PANEL:
-            x, y = pct_to_px(screen, 90.6, 5.5)
+            x, y = pct_to_px(screen, ALLIANCE_PANEL_CLOSE_X[0], ALLIANCE_PANEL_CLOSE_X[1])
         else:
-            x, y = pct_to_px(screen, 96.5, 5.5)
+            x, y = pct_to_px(screen, ALLIANCE_PANEL_CLOSE_X[0], ALLIANCE_PANEL_CLOSE_X[1])
         device.tap(x, y)
         pause(1.2)
+
 
         try:
             screen = device.snapshot()
@@ -446,6 +463,9 @@ def do_alliance_gifts(device: Device) -> bool:
     except Exception:
         log.exception("[việc vặt] snapshot trước Quà Tặng thất bại")
         return False
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng khi nhận quà LM -> abort")
+        return _close_to_world(device)
     _tap(device, screen, _QUA_TANG)
     time.sleep(random.uniform(1.0, 1.5))
 
@@ -454,6 +474,9 @@ def do_alliance_gifts(device: Device) -> bool:
     except Exception:
         log.exception("[việc vặt] snapshot panel Quà thất bại")
         return False
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng khi mở panel Quà -> abort")
+        return _close_to_world(device)
 
     has_thuong = _has_red_dot(screen, _DOT_THUONG)
     has_hiem = _has_red_dot(screen, _DOT_HIEM)
@@ -475,6 +498,19 @@ def do_alliance_gifts(device: Device) -> bool:
         time.sleep(random.uniform(1.0, 1.5))
     except Exception:
         log.exception("[việc vặt] tap X đóng panel Quà thất bại")
+
+    # Check lại ngay bằng pixel (nhanh, không cần OCR): nếu panel Liên Minh
+    # vẫn còn mở (tap X trượt/panel chưa kịp đóng) thì tap lại luôn thay vì
+    # để _close_to_world() rơi vào OCR toàn màn hình (chậm ~7-9s/lần).
+    try:
+        screen = device.snapshot()
+    except Exception:
+        screen = None
+    if screen is not None and _is_alliance_panel(screen):
+        log.warning("[việc vặt] panel Liên Minh vẫn còn mở sau khi tap X -> tap lại")
+        _tap(device, screen, _CLOSE_QUA_X)
+        time.sleep(random.uniform(1.0, 1.5))
+
     return _close_to_world(device)
 
 
@@ -507,6 +543,8 @@ def _wait_for_panel(
     Trả True nếu panel xuất hiện trước deadline. Trả False + log warning
     nếu hết ``max_wait_s`` mà panel chưa thấy — caller nên BACK về world
     để recover thay vì tap tiếp.
+
+    Nếu phát hiện popup mất mạng/thoát game giữa chừng -> xử lý + return False.
     """
     deadline = time.monotonic() + max_wait_s
     while time.monotonic() < deadline:
@@ -514,6 +552,10 @@ def _wait_for_panel(
             screen = device.snapshot()
         except Exception:
             log.exception("[việc vặt] snapshot chờ %s thất bại", name)
+            return False
+        # Kiểm tra popup mất mạng/thoát game giữa chừng
+        if check_and_handle_network_popup(device, screen):
+            log.warning("[việc vặt] popup mạng/thoát game khi chờ %s -> abort", name)
             return False
         if check_fn(screen):
             log.info("[việc vặt] đã thấy %s", name)
@@ -816,6 +858,9 @@ def do_alliance_tech(
     except Exception:
         log.exception("[việc vặt] snapshot trước Công Nghệ thất bại")
         return _close_to_world(device)
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng trước Công Nghệ -> abort")
+        return _close_to_world(device)
     _tap(device, screen, _CONG_NGHE)
     time.sleep(random.uniform(1.0, 1.5))
 
@@ -824,6 +869,9 @@ def do_alliance_tech(
         screen = device.snapshot()
     except Exception:
         log.exception("[việc vặt] snapshot panel Kỹ năng thất bại")
+        return _close_to_world(device)
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng khi chọn ô kỹ năng -> abort")
         return _close_to_world(device)
     slot = _find_tech_slot(screen)
     if slot is None:
@@ -842,6 +890,9 @@ def do_alliance_tech(
         screen = device.snapshot()
     except Exception:
         log.exception("[việc vặt] snapshot panel chi tiết thất bại")
+        return _close_to_world(device)
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng khi đọc cơ hội -> abort")
         return _close_to_world(device)
 
     available = _read_tech_opportunities(screen)
@@ -910,6 +961,9 @@ def do_alliance_territory(device: Device) -> bool:
     except Exception:
         log.exception("[việc vặt] snapshot trước Lãnh Thổ thất bại")
         return _close_to_world(device)
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng trước Lãnh Thổ -> abort")
+        return _close_to_world(device)
     _tap_quick(device, screen, _LANH_THO)
     time.sleep(random.uniform(1.0, 1.5))
 
@@ -920,6 +974,9 @@ def do_alliance_territory(device: Device) -> bool:
         screen = device.snapshot()
     except Exception:
         log.exception("[việc vặt] snapshot trước NHẬN Lãnh Thổ thất bại")
+        return _close_to_world(device)
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[việc vặt] popup mạng trước NHẬN Lãnh Thổ -> abort")
         return _close_to_world(device)
     _tap_quick(device, screen, _NHAN_LANH_THO)
     # NHẬN territory KHÔNG bung popup "Xác nhận" — RSS bay thẳng vào kho.
@@ -1172,6 +1229,9 @@ def collect_city_resources(device: Device, max_resources: int = 4) -> bool:
     log.info("[city-res] thu tai nguyen trong thanh")
     screen = _wake_and_unlock(device)
     if screen is None:
+        return False
+    if check_and_handle_network_popup(device, screen):
+        log.warning("[city-res] popup mạng khi thu tài nguyên -> abort")
         return False
 
     screen = _ensure_city_screen(device, screen)

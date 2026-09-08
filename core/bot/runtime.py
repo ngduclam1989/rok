@@ -6,6 +6,8 @@ dispatch / poll-for-slot / sleep cycle.
 """
 from __future__ import annotations
 
+import datetime as _dt
+
 import argparse
 import logging
 import random
@@ -800,9 +802,9 @@ def _prepare_world_only(device: Device) -> None:
             handle_alliance_panel(device, screen)
         elif state == S.PRE_KVK:
             handle_pre_kvk(device, screen)
+        elif state == S.TROOPS_PANEL:
+            handle_troops_panel(device, screen)
         elif state == S.SEARCH_PANEL:
-
-
             handle_search_panel(device, screen)
         elif state == S.TILE_INFO:
             handle_tile_info(device, screen)
@@ -929,6 +931,9 @@ def _go_home_then_world(device: Device) -> None:
     Tapping map_toggle twice (world -> city -> world) re-centres on
     the user's main city.
 
+    If we're NOT on WORLD/CITY (e.g. stuck in alliance panel, gifts,
+    popup...), we first close those screens via _return_to_world.
+
     Swallows every exception — this is a best-effort tidy-up step;
     the bot must still be able to sleep / poll if it fails.
     """
@@ -939,6 +944,25 @@ def _go_home_then_world(device: Device) -> None:
         log.exception("Snapshot trong cleanup thất bại -> bỏ qua")
         return
     ocr.clear_cache()
+
+    # ── Bước 0: nếu đang ở panel/popup -> đóng về WORLD trước ──
+    try:
+        state = detect_state(device, screen)
+    except Exception:
+        state = S.UNKNOWN
+    if state not in (S.WORLD, S.CITY):
+        log.warning(
+            "_go_home_then_world: đang ở %s (không phải WORLD/CITY) "
+            "-> đóng panel/popup trước",
+            state.value,
+        )
+        _return_to_world(device, max_attempts=6)
+        try:
+            screen = device.snapshot()
+        except Exception:
+            log.exception("Snapshot sau _return_to_world thất bại")
+            return
+        ocr.clear_cache()
 
     h, w = screen.shape[:2]
 
@@ -1441,6 +1465,8 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
     current_character = 1
     is_first_world_snapshot = True
     switch_account_fail_streak = 0
+    snapshot_fail_streak = 0          # Đếm số lần chụp màn hình thất bại liên tiếp
+    _MAX_SNAPSHOT_FAILS = 5           # Tối đa 5 lần thất bại liên tiếp -> dừng bot
     last_city_world_toggle_time = time.monotonic()
 
 
@@ -1601,8 +1627,46 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
         try:
             screen = device.snapshot()
         except Exception:
-            log.exception("Chụp màn hình thất bại! Thiết bị có thể đã offline. Tiến hành tự động khôi phục kết nối...")
-            
+            snapshot_fail_streak += 1
+            log.exception(
+                "Chụp màn hình thất bại! (lần %d/%d) Thiết bị có thể đã offline. "
+                "Tiến hành tự động khôi phục kết nối...",
+                snapshot_fail_streak, _MAX_SNAPSHOT_FAILS,
+            )
+
+            # ── Quá 5 lần liên tiếp -> ghi log mất kết nối & dừng bot ──
+            if snapshot_fail_streak >= _MAX_SNAPSHOT_FAILS:
+                now_str = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                device_name = getattr(device, "name", device.serial)
+                disconnect_msg = (
+                    f"[{now_str}] Thiết bị {device_name} (serial={device.serial}) "
+                    f"mất kết nối sau {snapshot_fail_streak} lần chụp màn hình thất bại liên tiếp. "
+                    f"Nhân vật/account đang chạy: character {current_character}, "
+                    f"dispatched={dispatched_count}/{config.MAX_SLOTS}, "
+                    f"iteration={iteration}."
+                )
+                log.error(disconnect_msg)
+
+                # Ghi ra file logs/disconnected_<serial>.txt
+                disconnect_file = ROOT / "logs" / f"disconnected_{device.serial}.txt"
+                try:
+                    disconnect_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(disconnect_file, "a", encoding="utf-8") as f:
+                        f.write(disconnect_msg + "\n")
+                    log.info(
+                        "Đã ghi thông tin mất kết nối vào %s",
+                        disconnect_file,
+                    )
+                except Exception as file_err:
+                    log.error("Không ghi được file disconnect log: %s", file_err)
+
+                log.error(
+                    "Dừng bot cho thiết bị %s do mất kết nối quá %d lần.",
+                    device.serial, _MAX_SNAPSHOT_FAILS,
+                )
+                break  # Thoát vòng while -> bot dừng cho máy này
+
+            # ── Chưa đạt giới hạn -> thử khôi phục như cũ ──
             # Kiểm tra và bật lại Bluestacks nếu bị crash/tắt
             from core.bot.bluestack import start_bluestack, is_port_open, get_instance_name_by_port
             s = str(device.serial).strip()
@@ -1634,7 +1698,7 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 )
                 device._adb_path = device._dev.adb.adb_path
                 log.info("Khôi phục kết nối thành công với thiết bị: %s", device.serial)
-                
+
                 # Kiểm tra xem game có thực sự bị tắt hay không khi khôi phục kết nối
                 if not device.is_game_running():
                     log.warning("Game không chạy sau khi khôi phục kết nối -> Đang khởi chạy lại...")
@@ -1655,6 +1719,8 @@ def _run_body(device: Device, max_iterations: int | None = None) -> None:
                 log.error("Tự động khôi phục kết nối thất bại: %s. Thử lại sau 5s...", re_err)
                 pause(5.0)
             continue
+        # Chụp thành công -> reset bộ đếm thất bại
+        snapshot_fail_streak = 0
         t_snap = time.monotonic() - t0
         ocr.clear_cache()
 

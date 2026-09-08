@@ -55,10 +55,13 @@ class Device:
         self._scrcpy_window_proc: subprocess.Popen[bytes] | None = None
         self._scrcpy_window_log_path: Path | None = None
 
+        scrcpy_adb = Path(__file__).resolve().parent.parent / "tools" / "scrcpy" / "adb.exe"
+        adb_exec = str(scrcpy_adb) if scrcpy_adb.exists() else None
+
         if ":" in serial:
             try:
                 from airtest.core.android.adb import ADB
-                adb_path = ADB().adb_path
+                adb_path = adb_exec or ADB().adb_path
                 subprocess.run([adb_path, "connect", serial], capture_output=True, check=False)
             except Exception:
                 pass
@@ -67,6 +70,7 @@ class Device:
             serialno=serial,
             cap_method="MINICAP",
             touch_method="MINITOUCH",
+            adb_path=adb_exec,
         )
         # Reuse airtest's resolved adb path so we don't depend on PATH.
         self._adb_path = self._dev.adb.adb_path

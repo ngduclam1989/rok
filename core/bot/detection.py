@@ -210,12 +210,16 @@ def is_gems_shop(screen: np.ndarray) -> bool:
 
 
 def is_alliance_panel(screen: np.ndarray) -> bool:
-    """Xác định màn hình Bảng Liên Minh (S.ALLIANCE_PANEL).
+    """Xác định màn hình Bảng Liên Minh hoặc các sub-panel bên trong (S.ALLIANCE_PANEL).
 
-    Nhận diện kết hợp 3 tín hiệu:
+    Nhận diện kết hợp nhiều tín hiệu:
       1. Pixel xanh đặc trưng của icon Công Nghệ (beaker).
       2. Tiêu đề "LIÊN MINH" ở vùng giữa trên cùng.
-      3. Hoặc chứa các nhãn cố định động: "thủ lĩnh", "lãnh thổ", "quà liên minh", "sức mạnh", "thành viên".
+      3. Hoặc chứa các nhãn cố định: "thủ lĩnh", "lãnh thổ", "quà liên minh",
+         "sức mạnh", "thành viên".
+      4. Sub-panel Quà Tặng: "QUÀ TẶNG", "NHẬN TẤT CẢ", "quà đã nhận".
+      5. Sub-panel Công Nghệ: "KỸ NĂNG LIÊN MINH", "TẶNG" (nút donate).
+      6. Sub-panel Lãnh Thổ: "LÃNH THỔ LIÊN MINH".
     """
     h, w = screen.shape[:2]
     cx = int(w * 0.522)
@@ -231,6 +235,7 @@ def is_alliance_panel(screen: np.ndarray) -> bool:
     if blue >= 5:
         return True
 
+    # Tiêu đề panel chính "LIÊN MINH"
     has_title = ocr_text_in(
         screen, (30.0, 0.0, 70.0, 15.0),
         ("LIEN MINH", "Lien Minh", "LIÊN MINH"),
@@ -239,7 +244,23 @@ def is_alliance_panel(screen: np.ndarray) -> bool:
     if has_title:
         return True
 
+    # Tiêu đề sub-panel Quà Tặng / Công Nghệ / Lãnh Thổ
+    has_sub_title = ocr_text_in(
+        screen, (20.0, 0.0, 80.0, 15.0),
+        (
+            "QUA TANG", "Qua Tang", "QUA TẶNG",
+            "KY NANG LIEN MINH", "Ky Nang Lien Minh",
+            "LANH THO LIEN MINH", "Lanh Tho Lien Minh",
+            "CONG NGHE", "Cong Nghe",
+        ),
+        threshold=0.4,
+    )
+    if has_sub_title:
+        return True
+
     hits = ocr.find_all(screen)
+
+    # Nhãn đặc trưng của panel chính (cần >=2 match)
     matched_labels = 0
     keywords = ("thu linh", "lanh tho", "qua lien minh", "suc manh", "thanh vien")
     for hit in hits:
@@ -250,6 +271,20 @@ def is_alliance_panel(screen: np.ndarray) -> bool:
             matched_labels += 1
             if matched_labels >= 2:
                 return True
+
+    # Nhãn đặc trưng của sub-panel Quà Tặng (chỉ cần 1 match)
+    gift_keywords = (
+        "nhan tat ca", "qua da nhan", "qua thuong", "qua hiem",
+        "qua tang", "qua lien minh",
+    )
+    for hit in hits:
+        if hit.confidence < 0.3:
+            continue
+        norm = ocr.strip_diacritics(hit.text).lower()
+        if any(k in norm for k in gift_keywords):
+            log.info("Phát hiện sub-panel Quà Tặng qua OCR: %s", hit.text)
+            return True
+
     return False
 
 
@@ -259,23 +294,23 @@ def is_pre_kvk(screen: np.ndarray) -> bool:
 
     Nhận diện kết hợp tiêu đề & đa nhãn đặc trưng tự động chịu lỗi OCR rớt nguyên âm:
       - "dem giao", "giao tha", "thp t chinh", "thap tu chinh"
-      - "dong quan", "cup boc", "tri thuy", "tri ha", "tri tho"
+
     """
     hits = ocr.find_all(screen)
     matched_labels = 0
     keywords = (
-        "dem giao", "thp t chinh", "thap tu chinh", "giao tha", "giao thua",
-        "dong quan", "cup boc", "tri thuy", "tri ha", "tri tho", "tri hoa",
+        "dem giao", "thp t chinh", "thap tu chinh", "giao tha", "giao thua"
     )
     for hit in hits:
         if hit.confidence < 0.3:
             continue
         norm = ocr.strip_diacritics(hit.text).lower()
         if any(k in norm for k in keywords):
-            matched_labels += 1
-            if matched_labels >= 2:
-                return True
+            return True
     return False
+
+
+
 
 
 def is_troops_panel(screen: np.ndarray) -> bool:
@@ -304,6 +339,40 @@ def is_troops_panel(screen: np.ndarray) -> bool:
 
 
 
+def _has_modal_overlay(screen: np.ndarray) -> bool:
+    """Cheap pixel check: is a modal popup overlay on screen?
+
+    Modal popups in RoK dim the background (dark corners) and show a
+    bright dialog box in the centre. We sample a few corner pixels and
+    a few centre pixels — if corners are dark AND centre is bright, a
+    modal is very likely present.
+
+    This runs in <1ms, vs 15-30s for a full OCR classify path.
+    """
+    h, w = screen.shape[:2]
+
+    # Sample 4 corner areas (should be dim when overlay active)
+    dark_count = 0
+    for xp, yp in ((5, 5), (95, 5), (5, 95), (95, 95)):
+        x = int(w * xp / 100)
+        y = int(h * yp / 100)
+        b, g, r = screen[y, x]
+        if int(r) + int(g) + int(b) < 200:
+            dark_count += 1
+
+    if dark_count < 3:
+        return False  # Corners not dark enough → no overlay
+
+    # Sample centre area (should be bright — popup body)
+    bright_count = 0
+    for xp, yp in ((40, 40), (50, 50), (60, 40), (50, 60), (45, 55)):
+        x = int(w * xp / 100)
+        y = int(h * yp / 100)
+        b, g, r = screen[y, x]
+        if int(r) + int(g) + int(b) > 500:
+            bright_count += 1
+
+    return bright_count >= 3
 
 
 def detect_state(device: Device, screen: np.ndarray) -> S:
@@ -311,6 +380,17 @@ def detect_state(device: Device, screen: np.ndarray) -> S:
     # ---- Phase 0: lock screen (cheap brightness check) --------------
     if is_lock_screen(screen):
         return S.LOCK_SCREEN
+
+    # ---- Phase 0.5: quick modal popup pre-check ---------------------
+    # Modal popups (network error, exit dialog) dim the background and
+    # show a bright dialog box in the centre. Detect this pattern with
+    # cheap pixel sampling BEFORE running any template/OCR — cuts
+    # detection from ~15-30s down to ~1-2s for these critical states.
+    if _has_modal_overlay(screen):
+        modal_state = classify_modal_popup(screen, debug=True)
+        if modal_state in (S.EXIT_DIALOG, S.NETWORK_ERROR):
+            return modal_state
+        # Not a known modal → fall through to normal detection.
 
     # ---- Phase 1: template-only fast path ---------------------------
 
